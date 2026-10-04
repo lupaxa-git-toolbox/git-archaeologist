@@ -28,8 +28,8 @@ script is `git-archaeologist`.
 pip install lupaxa-git-archaeologist
 ```
 
-Requires Python 3.10+ and Git 2.30 or newer. There are no runtime Python
-dependencies.
+Requires Python 3.10+ and Git 2.30 or newer. The `colored` package is
+installed with the tool and is used for console colour.
 
 You can also run `python -m lupaxa.git_archaeologist`.
 
@@ -57,14 +57,102 @@ remote-tracking ref. Those two options cannot be combined.
 | `blobs`        | Reachable historical blob sizes                                  |
 | `evolution`    | First-parent snapshots of the tree                               |
 
+## Options
+
+Global options work before or after the command. `git-archaeologist --help`
+and `git-archaeologist COMMAND --help` exit 0 without opening a repository.
+
+### Show Every Row
+
+`--limit` only shortens the printed table. The analysis still covers the
+whole history, which is why a report can say `Showing 20 of 39  truncated`.
+The default is 20 rows. `dig` prints 5 rows in each ranked section until you
+pass `--limit`.
+
+```bash
+git-archaeologist churn --limit 0
+```
+
+`0` prints every ranked row. The same option applies to `contributors`,
+`survivors`, `extinct`, `files`, `blobs`, and the event list from `history`.
+`timeline` and `evolution` are not row-limited. JSON still reports `total`,
+`returned`, and `truncated` when a limit is in effect.
+
+### Global Options
+
+| Option                 | Default   | What it does                                                       |
+| ---------------------- | --------- | ------------------------------------------------------------------ |
+| `--format FORMAT`      | `console` | `console`, `json`, or `markdown`                                   |
+| `--branch NAME`        |           | Exact local branch. No tag or remote fallback                      |
+| `--revision REV`       |           | One commit, tag, or remote-tracking ref                            |
+| `--since DATE`         |           | Inclusive committer-time lower bound, in UTC                       |
+| `--until DATE`         |           | Upper bound. A date covers that whole UTC day                      |
+| `--since-rev REV`      |           | Exclude commits reachable from REV, including REV                  |
+| `--until-rev REV`      |           | Keep commits reachable from REV. Must be an ancestor of the target |
+| `--path PATH`          |           | Limit ranked rows to one file or directory                         |
+| `--rename-threshold N` | `50`      | Similarity percentage for renames and copies                       |
+| `--no-copies`          | off       | Record copies as new files                                         |
+| `--limit N`            | `20`      | Ranked rows to print. `0` prints every row                         |
+| `--quiet`              | off       | Hide the spinner and stderr warnings                               |
+| `--verbose`            | off       | Extra phase diagnostics on stderr                                  |
+| `--no-color`           | off       | Disable console colour                                             |
+| `--help`               |           | Help, then exit 0, without opening a repository                    |
+| `--version`            |           | Version, then exit 0                                               |
+
+`--branch` and `--revision` cannot be combined. `--quiet` and `--verbose`
+cannot be combined. Dates are `YYYY-MM-DD` or RFC 3339 with an explicit
+offset. Relative words such as `yesterday` are rejected.
+
+`--since-rev` and `--until-rev` select activity the way `git log REV1..REV2`
+does. `--since-rev v1.0.0 --until-rev v2.0.0` keeps commits reachable from
+`v2.0.0` and drops commits reachable from `v1.0.0`. The target tree stays the
+resolved commit, so `survivors` and `files` still describe that tree. Touch
+and churn counts use the selected commits.
+
+`--path src/api` limits `churn`, `files`, `survivors`, `extinct`,
+`contributors`, `timeline`, `blobs`, and `evolution` to that file or to that
+directory and its children. `history` already takes its path as the first
+argument. `extinct` directories include the commits that touched them, the
+authors of those commits, and the commit that removed the directory.
+
+Renames and copies use the same similarity percentage. The default is 50. A
+lower `--rename-threshold` keeps a rewritten file on one identity. Git still
+requires the measured similarity to clear that percentage, so a total rewrite
+stays an add and a delete. `--no-copies` records a duplicate as a new file.
+`--no-renames` turns off both rename and copy detection.
+
+### Command Options
+
+| Command        | Options                                                                                                                          |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `dig`          | `--quick` skips rename, churn, extinct, and blob scans                                                                           |
+| `timeline`     | `--group auto`, `day`, `month`, or `year`. Default `auto`                                                                        |
+| `contributors` | `--sort commits`, `first`, `last`, or `name`. `--no-mailmap`                                                                     |
+| `survivors`    | `--sort age`, `commits`, or `path`. `--no-renames`                                                                               |
+| `extinct`      | `--kind files`, `directories`, or `all`. `--sort last`, `age`, `commits`, or `path`                                              |
+| `files`        | `--sort age`, `commits`, `contributors`, `churn`, `size`, or `path`. `--no-renames`                                              |
+| `history`      | `--events` prints the event table. `--incarnation COMMIT`. `--no-renames`                                                        |
+| `churn`        | `--by files` or `directories`. `--depth N` for directories. `--sort churn`, `commits`, `contributors`, or `path`. `--no-renames` |
+| `blobs`        | `--min-size SIZE`, default `10MiB`. `--deleted`. `--sort size` or `path`                                                         |
+| `evolution`    | `--group auto`, `day`, `month`, or `year`. `--lines`. `--max-snapshots N`, default `120`                                         |
+
+`--depth` is only valid with `churn --by directories`, and it must be 1 or
+greater. `--deleted` lists blobs absent from the target tree, including older
+versions of paths that still exist. Sizes are logical blob bytes. `--lines`
+counts text lines and skips binaries, symlinks, gitlinks, and recognised LFS
+pointers.
+
 ## Examples
 
 ```bash
 git-archaeologist dig
 git-archaeologist dig ~/Projects/demo --branch master
 git-archaeologist --format json churn --revision release/2.0
+git-archaeologist churn --limit 0
+git-archaeologist churn --since-rev v1.0.0 --until-rev v2.0.0
+git-archaeologist churn --path src/api
 git-archaeologist contributors --since 2025-01-01 --until 2025-12-31
-git-archaeologist history --events src/grammar.py
+git-archaeologist history --rename-threshold 20 --events src/grammar.py
 git-archaeologist blobs --deleted --min-size 10MiB
 git-archaeologist timeline --group year
 git-archaeologist evolution --group month --lines
@@ -76,20 +164,17 @@ ranked results as tables. Colour is used only when stdout is a terminal,
 never contain ANSI sequences. Console dates are UTC calendar days. JSON
 keeps the full timestamp.
 
-`--limit` caps ranked rows. It does not change totals. The default is 20.
-`dig` shows 5 rows in each ranked section unless you pass `--limit`.
-`dig --quick` skips rename, churn, extinct, and blob scans and marks those
-sections skipped.
-
-Phase names are printed on stderr while a command runs. `--quiet` hides
-progress and stderr warnings. Warnings that affect the report stay in the
-JSON or Markdown output. `--verbose` adds phase diagnostics on stderr.
+A terminal shows a spinner on stderr while a phase runs, with a count when
+the total is already known. A pipe prints one phase line instead. `--quiet`
+hides progress and stderr warnings. Warnings that affect the report stay in
+the JSON or Markdown output. `--verbose` adds phase diagnostics on stderr.
 `--quiet` and `--verbose` cannot be combined.
 
-> **Note:** Merge commits count as activity, and their file diffs are not
-> included in churn. Every report names this policy. Dates use committer
-> time in UTC. A date-only `--since` starts at midnight UTC. A date-only
-> `--until` runs through the end of that day.
+> **Note:** Merge commits count as activity. File events include only changes
+> that differ from every parent, such as a conflict resolution. A clean merge
+> does not add a second copy of the branch diff. Every report names this
+> policy. Dates use committer time in UTC. A date-only `--since` starts at
+> midnight UTC. A date-only `--until` runs through the end of that day.
 
 ## Sample Output
 

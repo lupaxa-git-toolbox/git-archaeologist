@@ -373,7 +373,7 @@ def _rows_table(command: str, rows: list[Any], paint: Paint, width: int) -> list
         )
     if command == "extinct":
         return render_table(
-            ["Path", "Kind", "Reason", "Last seen", "Touches"],
+            ["Path", "Kind", "Reason", "Last seen", "Touches", "Authors"],
             [
                 [
                     _path(row.get("path")),
@@ -381,10 +381,11 @@ def _rows_table(command: str, rows: list[Any], paint: Paint, width: int) -> list
                     str(row.get("absence_reason") or ""),
                     _short_time((row.get("last_observed") or {}).get("committer_at")),
                     _commas(row.get("lifetime_touches") or 0),
+                    _commas(row.get("lifetime_contributors") or 0),
                 ]
                 for row in records
             ],
-            aligns=["left", "left", "left", "left", "right"],
+            aligns=["left", "left", "left", "left", "right", "right"],
             width=width,
             paint=paint,
         )
@@ -557,6 +558,7 @@ def _status_colour(status: str) -> str:
         "M": Fore.cyan,
         "D": Fore.yellow,
         "R": Fore.magenta,
+        "C": Fore.green,
         "T": Fore.white,
     }.get(status, "")
 

@@ -19,6 +19,12 @@ class Request:
     until: int | None = None
     since_text: str | None = None
     until_text: str | None = None
+    since_rev: str | None = None
+    until_rev: str | None = None
+    since_rev_oid: str | None = None
+    until_rev_oid: str | None = None
+    rename_threshold: int = 50
+    copies: bool = True
     limit: int = 20
     limit_explicit: bool = False
     quiet: bool = False

@@ -72,7 +72,7 @@ class Commit:
 
 @dataclass
 class Change:
-    """One eligible file change. Merge commits do not produce these."""
+    """One eligible file change. Merge commits produce only changes unique to the merge."""
 
     commit: str
     status: str
@@ -411,7 +411,7 @@ def _parse_raw(blob: bytes) -> list[dict[str, Any]]:
                 raise ToolError("GIT_FAILED", "Git diff stream ended inside a path.", 3)
             paths.append(blob[index:nul])
             index = nul + 1
-        old_path = paths[0] if letter in {"R", "C", "D"} else (None if letter == "A" else paths[0])
+        old_path: bytes | None
         new_path: bytes | None
         if letter in {"R", "C"}:
             old_path = paths[0]
@@ -498,12 +498,24 @@ class Repository:
         self.changes: list[Change] = []
         self._changes_mode: bool | None = None
         self.shallow_boundaries: set[str] = set()
+        self.rename_threshold = 50
+        self.detect_copies = True
+        self._ancestor_cache: dict[str, set[str]] = {}
         self.empty_tree = ""
         self.digest_length = 20
+        self.progress: Any = None
         self._discover()
 
     def _git(self, args: Sequence[str], **kwargs: Any) -> GitOutput:
         return self.runner.run(args, cwd=self.start, **kwargs)
+
+    def note_progress(
+        self, label: str, current: int | None = None, total: int | None = None
+    ) -> None:
+        """Advance the stderr spinner when one is attached."""
+        progress = self.progress
+        if progress is not None:
+            progress.update(label, current, total)
 
     def _discover(self) -> None:
         inside = self._git(["rev-parse", "--is-inside-work-tree"], check=False)
@@ -669,6 +681,7 @@ class Repository:
 
     def prepare_target(self, oid: str) -> None:
         """Load commits reachable from ``oid`` and the empty-tree ID."""
+        self.note_progress("Reading commits")
         self.digest_length = len(oid) // 2
         empty = self._git(["hash-object", "-t", "tree", "--stdin"], stdin=b"")
         self.empty_tree = empty.stdout.decode().strip()
@@ -702,16 +715,56 @@ class Repository:
                     )
                     return
 
+    def ancestor_ids(self, oid: str) -> set[str]:
+        """Commits reachable from ``oid``, including ``oid``, that this target already loaded."""
+        cached = self._ancestor_cache.get(oid)
+        if cached is not None:
+            return cached
+        if oid in self.commits:
+            found: set[str] = set()
+            stack = [oid]
+            while stack:
+                current = stack.pop()
+                if current in found or current not in self.commits:
+                    continue
+                found.add(current)
+                stack.extend(self.commits[current].parents)
+        else:
+            output = self._git(["rev-list", oid])
+            found = {
+                line.decode()
+                for line in output.stdout.splitlines()
+                if line.decode() in self.commits
+            }
+        self._ancestor_cache[oid] = found
+        return found
+
     def ensure_changes(self, *, renames: bool) -> None:
-        """Diff every non-merge commit once. Shallow boundaries are not treated as roots."""
+        """Diff every commit once. Merges keep only changes that differ from every parent."""
         if self._changes_mode is renames:
             return
         self.changes = []
         self._changes_mode = renames
-        rename_args = ["-M50%", "--find-renames=50%", "-l1000"] if renames else ["--no-renames"]
-        for oid in reversed(self.order):
+        threshold = self.rename_threshold
+        if renames:
+            rename_args = [
+                f"-M{threshold}%",
+                f"--find-renames={threshold}%",
+                "-l1000",
+            ]
+            if self.detect_copies:
+                rename_args[2:2] = [f"-C{threshold}%", "--find-copies-harder"]
+        else:
+            rename_args = ["--no-renames"]
+        total = len(self.order)
+        for index, oid in enumerate(reversed(self.order), start=1):
+            self.note_progress("Reading changes", index, total)
             commit = self.commits[oid]
             if len(commit.parents) > 1:
+                if any(parent not in self.commits for parent in commit.parents):
+                    self.shallow_boundaries.add(oid)
+                else:
+                    self._merge_only_changes(commit)
                 continue
             if commit.parents and commit.parents[0] not in self.commits:
                 self.shallow_boundaries.add(oid)
@@ -732,10 +785,6 @@ class Repository:
                 if num.stdout.strip(b"\0"):
                     raise ToolError("GIT_FAILED", "Git returned numstat without a raw diff.", 3)
             for record in records:
-                if record["status"] == "C":
-                    record["status"] = "A"
-                    record["old_path"] = None
-                    record["similarity"] = None
                 self.changes.append(
                     Change(
                         commit=oid,
@@ -753,6 +802,108 @@ class Repository:
                     )
                 )
 
+    def _merge_only_changes(self, commit: Commit) -> None:
+        """Record paths whose result blob matches none of the parent blobs."""
+        result = {leaf.path: leaf for leaf in self.tree_leaves(commit.tree)}
+        parent_maps = [
+            {leaf.path: leaf for leaf in self.tree_leaves(self.commits[parent].tree)}
+            for parent in commit.parents
+        ]
+        paths = set(result)
+        for parent_map in parent_maps:
+            paths.update(parent_map)
+        null_oid = "0" * (self.digest_length * 2)
+        for path in paths:
+            result_leaf = result.get(path)
+            parent_leaves = [parent_map.get(path) for parent_map in parent_maps]
+            result_oid = None if result_leaf is None else result_leaf.oid
+            parent_oids = [None if leaf is None else leaf.oid for leaf in parent_leaves]
+            if result_oid in parent_oids:
+                continue
+            additions, deletions, binary, source_oid = self._closest_numstat(
+                parent_oids, result_oid
+            )
+            source = next(
+                (leaf for leaf in parent_leaves if leaf is not None and leaf.oid == source_oid),
+                next((leaf for leaf in parent_leaves if leaf is not None), None),
+            )
+            if result_leaf is None:
+                status = "D"
+                old_path: bytes | None = path
+                new_path: bytes | None = None
+                old_mode = source.mode if source is not None else "100644"
+                new_mode = "000000"
+                old_oid = source.oid if source is not None else null_oid
+                new_oid = null_oid
+            elif all(leaf is None for leaf in parent_leaves):
+                status = "A"
+                old_path = None
+                new_path = path
+                old_mode = "000000"
+                new_mode = result_leaf.mode
+                old_oid = null_oid
+                new_oid = result_leaf.oid
+            else:
+                status = "M"
+                old_path = path
+                new_path = path
+                old_mode = source.mode if source is not None else "100644"
+                new_mode = result_leaf.mode
+                old_oid = source.oid if source is not None else null_oid
+                new_oid = result_leaf.oid
+            self.changes.append(
+                Change(
+                    commit=commit.oid,
+                    status=status,
+                    similarity=None,
+                    old_path=old_path,
+                    new_path=new_path,
+                    old_mode=old_mode,
+                    new_mode=new_mode,
+                    old_oid=old_oid,
+                    new_oid=new_oid,
+                    additions=additions,
+                    deletions=deletions,
+                    binary=binary,
+                )
+            )
+
+    def _closest_numstat(
+        self, parent_oids: list[str | None], result_oid: str | None
+    ) -> tuple[int | None, int | None, bool, str | None]:
+        best: tuple[int, int | None, int | None, bool, str | None] | None = None
+        for parent_oid in parent_oids:
+            additions, deletions, binary = self._pair_numstat(parent_oid, result_oid)
+            score = 10**12 if binary else (additions or 0) + (deletions or 0)
+            if best is None or score < best[0]:
+                best = (score, additions, deletions, binary, parent_oid)
+        assert best is not None
+        return best[1], best[2], best[3], best[4]
+
+    def _pair_numstat(
+        self, old: str | None, new: str | None
+    ) -> tuple[int | None, int | None, bool]:
+        if old is not None and new is not None:
+            completed = self._git(["diff", "--numstat", old, new])
+            text = completed.stdout.decode()
+            line = text.splitlines()[0] if text.strip() else "0\t0"
+            added, deleted, *_rest = line.split("\t")
+            if added == "-" or deleted == "-":
+                return None, None, True
+            return int(added), int(deleted), False
+        present = new or old
+        if present is None:
+            return 0, 0, False
+        body = self._git(["cat-file", "blob", present]).stdout
+        if b"\0" in body[:8000]:
+            return None, None, True
+        lines = body.count(b"\n")
+        if body and not body.endswith(b"\n"):
+            lines += 1
+        if new is None:
+            return 0, lines, False
+        return lines, 0, False
+
     def _note_rename_limit(self, stderr: bytes) -> None:
         text = stderr.decode("utf-8", "replace").lower()
         if "rename detection was skipped" in text or "inexact rename" in text:
@@ -764,7 +915,7 @@ class Repository:
                         "Git skipped exhaustive rename detection because the candidate "
                         "limit was exhausted. Rename completeness is false for affected "
                         "comparisons.",
-                        {"limit": 1000, "threshold": 50},
+                        {"limit": 1000, "threshold": self.rename_threshold},
                     )
                 )
 
@@ -827,6 +978,7 @@ class Repository:
         sizes: dict[str, int] = {}
         if not unique:
             return sizes
+        self.note_progress("Reading object sizes")
         payload = b"".join(oid.encode("ascii") + b"\n" for oid in unique)
         output = self._git(
             ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],

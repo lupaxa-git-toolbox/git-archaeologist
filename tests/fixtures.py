@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 
-def git(repo: Path, *args: str, date: str = "2024-06-01T00:00:00Z") -> None:
+def git(repo: Path, *args: str, date: str = "2024-06-01T00:00:00Z", check: bool = True):
     """Run Git inside a fixture. Global config and the clock are not consulted."""
     env = os.environ.copy()
     env["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -18,7 +18,7 @@ def git(repo: Path, *args: str, date: str = "2024-06-01T00:00:00Z") -> None:
     env["GIT_COMMITTER_EMAIL"] = "ada@example.com"
     env["GIT_AUTHOR_DATE"] = date
     env["GIT_COMMITTER_DATE"] = date
-    subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True)
+    return subprocess.run(["git", *args], cwd=repo, env=env, check=check, capture_output=True)
 
 
 def init_repo(path: Path, branch: str = "topic") -> Path:

@@ -138,6 +138,11 @@ def test_directory_peak_comes_from_snapshots(tmp_path: Path, capsys) -> None:
     directory = next(row for row in report["data"]["rows"] if row["path"]["path"] == "dir")
     assert directory["peak_descendants"] == 2
     assert directory["inferred_from"] == "tracked_paths"
+    assert directory["lifetime_touches"] == 3
+    assert directory["lifetime_contributors"] == 1
+    assert directory["absence_reason"] == "observed_deletion"
+    assert directory["removals"][0]["reason"] == "observed_deletion"
+    assert directory["removals"][0]["commit"]
 
 
 def test_sentinel_hook_does_not_run(tmp_path: Path, capsys) -> None:
@@ -152,6 +157,94 @@ def test_sentinel_hook_does_not_run(tmp_path: Path, capsys) -> None:
     capsys.readouterr()
     assert not sentinel.exists()
     assert _inventory(repo) == before
+
+
+def test_revision_range_selects_commits_between_refs(tmp_path: Path, capsys) -> None:
+    repo = init_repo(tmp_path / "range", branch="topic")
+    commit_file(repo, "file.txt", "one\n", "v1", "2024-01-01T00:00:00Z")
+    git(repo, "tag", "v1")
+    commit_file(repo, "file.txt", "two\n", "v2", "2024-02-01T00:00:00Z")
+    git(repo, "tag", "v2")
+    commit_file(repo, "file.txt", "three\n", "v3", "2024-03-01T00:00:00Z")
+    report = _json(repo, "churn", "--since-rev", "v1", "--until-rev", "v2", capsys=capsys)
+    assert report["scope"]["window"] == "revision"
+    assert report["scope"]["selected_commits"] == 1
+    assert sum(row["churn"] for row in report["data"]["rows"]) == 2
+
+
+def test_until_rev_must_be_an_ancestor(tmp_path: Path, capsys) -> None:
+    repo = init_repo(tmp_path / "ancestor", branch="topic")
+    commit_file(repo, "keep.txt", "a\n", "base", "2024-01-01T00:00:00Z")
+    git(repo, "checkout", "-q", "-b", "side")
+    commit_file(repo, "side.txt", "side\n", "side", "2024-02-01T00:00:00Z")
+    git(repo, "checkout", "-q", "topic")
+    code = main(
+        ["churn", "--until-rev", "side", "--format", "json", "--quiet", "--no-color", str(repo)]
+    )
+    captured = capsys.readouterr()
+    assert code == 4
+    assert "ancestor" in captured.out
+
+
+def test_path_limits_ranked_commands(tmp_path: Path, capsys) -> None:
+    repo = init_repo(tmp_path / "scoped", branch="topic")
+    commit_file(repo, "src/api/a.txt", "a\n", "api", "2024-01-01T00:00:00Z")
+    commit_file(repo, "src/web/b.txt", "b\n", "web", "2024-02-01T00:00:00Z")
+    churn = _json(repo, "churn", "--path", "src/api", capsys=capsys)
+    assert [row["path"]["path"] for row in churn["data"]["rows"]] == ["src/api/a.txt"]
+    people = _json(repo, "contributors", "--path", "src/api", capsys=capsys)
+    assert people["data"]["selected_commits"] == 1
+    files = _json(repo, "files", "--path", "src/api", capsys=capsys)
+    assert [row["path"]["path"] for row in files["data"]["rows"]] == ["src/api/a.txt"]
+
+
+def test_copy_keeps_its_source(tmp_path: Path, capsys) -> None:
+    repo = init_repo(tmp_path / "copied", branch="topic")
+    commit_file(repo, "a.txt", "same\n", "add", "2024-01-01T00:00:00Z")
+    (repo / "b.txt").write_text("same\n", encoding="utf-8")
+    git(repo, "add", "--", "b.txt", date="2024-02-01T00:00:00Z")
+    git(repo, "commit", "-q", "-m", "copy", date="2024-02-01T00:00:00Z")
+    history = _json(repo, "history", "b.txt", capsys=capsys)
+    copied = [event for event in history["data"]["events"] if event["status"] == "C"]
+    assert copied
+    assert copied[0]["old_path"]["path"] == "a.txt"
+    plain = _json(repo, "history", "--no-copies", "b.txt", capsys=capsys)
+    assert all(event["status"] != "C" for event in plain["data"]["events"])
+
+
+def test_rename_threshold_can_keep_a_rewritten_file(tmp_path: Path, capsys) -> None:
+    repo = init_repo(tmp_path / "threshold", branch="topic")
+    original = "".join(f"line {index}\n" for index in range(10))
+    rewritten = "".join(
+        f"line {index}\n" if index < 4 else f"changed {index}\n" for index in range(10)
+    )
+    commit_file(repo, "old.txt", original, "add", "2024-01-01T00:00:00Z")
+    (repo / "old.txt").write_text(rewritten, encoding="utf-8")
+    git(repo, "add", "--", "old.txt", date="2024-02-01T00:00:00Z")
+    git(repo, "mv", "old.txt", "new.txt", date="2024-02-01T00:00:00Z")
+    git(repo, "commit", "-q", "-m", "rewrite", date="2024-02-01T00:00:00Z")
+    strict = _json(repo, "history", "new.txt", capsys=capsys)
+    assert "R" not in [event["status"] for event in strict["data"]["events"]]
+    loose = _json(repo, "history", "--rename-threshold", "20", "new.txt", capsys=capsys)
+    assert "R" in [event["status"] for event in loose["data"]["events"]]
+
+
+def test_merge_resolution_counts_as_churn(tmp_path: Path, capsys) -> None:
+    repo = init_repo(tmp_path / "resolved", branch="topic")
+    commit_file(repo, "keep.txt", "base\n", "base", "2024-01-01T00:00:00Z")
+    git(repo, "checkout", "-q", "-b", "side")
+    commit_file(repo, "keep.txt", "side\n", "side", "2024-02-01T00:00:00Z")
+    git(repo, "checkout", "-q", "topic")
+    commit_file(repo, "keep.txt", "topic\n", "topic", "2024-03-01T00:00:00Z")
+    conflict = git(repo, "merge", "--no-ff", "--no-commit", "side", check=False)
+    assert conflict.returncode != 0
+    (repo / "keep.txt").write_text("resolved\n", encoding="utf-8")
+    git(repo, "add", "--", "keep.txt", date="2024-04-01T00:00:00Z")
+    git(repo, "commit", "-q", "-m", "resolve", date="2024-04-01T00:00:00Z")
+    churn = _json(repo, "churn", capsys=capsys)
+    assert sum(row["churn"] for row in churn["data"]["rows"]) == 7
+    history = _json(repo, "history", "keep.txt", capsys=capsys)
+    assert any(event["status"] == "M" for event in history["data"]["events"])
 
 
 def _inventory(repo: Path) -> str:

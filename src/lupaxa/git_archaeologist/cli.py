@@ -13,6 +13,7 @@ from typing import Any, NoReturn
 from lupaxa.git_archaeologist.errors import ToolError
 from lupaxa.git_archaeologist.gitio import GitRunner, Repository
 from lupaxa.git_archaeologist.options import Request
+from lupaxa.git_archaeologist.progress import Progress
 from lupaxa.git_archaeologist.render import render, render_error
 from lupaxa.git_archaeologist.reports import build_report
 from lupaxa.git_archaeologist.text import parse_size, parse_user_time
@@ -30,8 +31,19 @@ _COMMANDS = (
     "blobs",
     "evolution",
 )
-_GLOBAL_VALUES = {"--format", "--branch", "--revision", "--since", "--until", "--limit"}
-_GLOBAL_FLAGS = {"--quiet", "--verbose", "--no-color", "--version", "--help", "-h"}
+_GLOBAL_VALUES = {
+    "--format",
+    "--branch",
+    "--revision",
+    "--since",
+    "--until",
+    "--since-rev",
+    "--until-rev",
+    "--path",
+    "--rename-threshold",
+    "--limit",
+}
+_GLOBAL_FLAGS = {"--quiet", "--verbose", "--no-color", "--no-copies", "--version", "--help", "-h"}
 _ROOT_HELP = """\
 Git Archaeologist reads a local Git repository and reports how it evolved.
 
@@ -57,8 +69,13 @@ Global options:
   --revision REV                   One commit-ish. Mutually exclusive with --branch
   --since DATE                     Inclusive committer-time lower bound
   --until DATE                     Exclusive upper bound. A date covers that whole day
-  --limit N                        Ranked rows. 0 means unlimited. Default: 20
-                                   dig uses 5 unless you pass --limit
+  --since-rev REV                  Exclude commits reachable from REV, including REV
+  --until-rev REV                  Keep commits reachable from REV. REV must be an ancestor
+  --path PATH                      Ranked commands: one file, or a directory and its children
+  --rename-threshold N             Similarity percentage for renames and copies. Default: 50
+  --no-copies                      Record copies as new files
+  --limit N                        Rows to print. Default: 20. 0 prints every row
+                                   dig prints 5 per section until you pass --limit
   --quiet                          Hide progress and stderr warnings
   --verbose                        Phase diagnostics on stderr
   --no-color                       Disable console styling
@@ -67,7 +84,10 @@ Global options:
 
 The default target is HEAD, including a detached HEAD. No command is implied.
 Dates are YYYY-MM-DD or RFC 3339 with an explicit offset, in UTC.
-Merge commits count as activity and are excluded from file change and churn events.
+--since-rev and --until-rev select activity the way git REV1..REV2 does.
+The target tree stays the resolved commit.
+Merge commits count as activity. File events include only changes that differ
+from every parent. Copies are detected unless --no-copies or --no-renames is set.
 The tool is read-only: it does not fetch, checkout, or write into the repository.
 Reports are written to stdout.
 
@@ -140,11 +160,16 @@ def _emit_tool_error(exc: ToolError, fmt: str, command: str | None) -> None:
 
 def _execute(request: Request) -> int:
     runner = GitRunner()
+    progress = Progress(
+        enabled=not request.quiet,
+        tty=sys.stderr.isatty(),
+        color=request.color and sys.stderr.isatty(),
+    )
     try:
-        if not request.quiet:
-            print("phase: validation", file=sys.stderr)
+        progress.update("Checking Git")
         runner.require_version()
         repo = Repository(runner, request.repository)
+        repo.progress = progress
         state, _branch, head_oid = repo.resolve_head()
         if request.branch:
             target = repo.resolve_branch(request.branch)
@@ -162,21 +187,20 @@ def _execute(request: Request) -> int:
             )
         else:
             target = head_oid
-        if not request.quiet:
-            print("phase: commit metadata", file=sys.stderr)
+        progress.update("Reading commits")
         repo.prepare_target(target)
-        if not request.quiet:
-            print("phase: analysis", file=sys.stderr)
+        _resolve_revisions(repo, request)
         report = build_report(repo, request, target)
         repo.recheck_target(target)
-        if not request.quiet:
-            print("phase: rendering", file=sys.stderr)
+        progress.update("Rendering")
+        progress.stop()
         for warning in report["warnings"]:
             if not request.quiet:
                 print(f"warning: {warning['code']}: {warning['message']}", file=sys.stderr)
         render(report, request)
         return 5 if report["status"] == "partial" else 0
     finally:
+        progress.stop()
         runner.close()
 
 
@@ -192,7 +216,7 @@ def _bare_report(repo: Repository, request: Request, kind: str) -> dict[str, Any
         "analysis": {
             "history_complete": True,
             "mailmap": {"source": None, "status": "absent"},
-            "merge_policy": "exclude_merge_file_changes",
+            "merge_policy": "merge_only_file_changes",
             "sections": {},
         },
         "command": request.command,
@@ -258,10 +282,18 @@ def _request(
     repository = _repository(getattr(parsed, "repository", None))
     path = None
     path_text = getattr(parsed, "path", None)
+    global_path = global_args.path
     if command == "history":
+        if path_text is None:
+            path_text = global_path
+        elif global_path is not None and _encode_path(global_path) != _encode_path(path_text):
+            raise ToolError("USAGE", "history path and --path do not match.", 2)
         if path_text is None:
             raise ToolError("USAGE", "history requires a repository-relative path.", 2)
         path = _encode_path(path_text)
+    elif global_path is not None:
+        path = _encode_path(global_path)
+        path_text = global_path
     depth = getattr(parsed, "depth", 1)
     if command == "churn" and getattr(parsed, "by", "files") == "directories" and depth < 1:
         raise ToolError("USAGE", "--depth must be 1 or greater.", 2)
@@ -295,6 +327,10 @@ def _request(
         until=None if until is None else int(until.timestamp()),
         since_text=global_args.since,
         until_text=global_args.until,
+        since_rev=global_args.since_rev,
+        until_rev=global_args.until_rev,
+        rename_threshold=_threshold(global_args.rename_threshold),
+        copies=not global_args.no_copies,
         limit=limit,
         limit_explicit=explicit,
         quiet=global_args.quiet,
@@ -327,7 +363,12 @@ def _parse_globals(tokens: list[str]) -> argparse.Namespace:
     parser.add_argument("--revision")
     parser.add_argument("--since")
     parser.add_argument("--until")
+    parser.add_argument("--since-rev", dest="since_rev")
+    parser.add_argument("--until-rev", dest="until_rev")
+    parser.add_argument("--path")
+    parser.add_argument("--rename-threshold", dest="rename_threshold")
     parser.add_argument("--limit")
+    parser.add_argument("--no-copies", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--no-color", action="store_true")
@@ -402,7 +443,8 @@ def _command_help(command: str) -> str:
         "history": (
             "history [--no-renames] [--incarnation COMMIT] [--events] PATH [REPOSITORY]\n\n"
             "PATH is repository-root-relative. Directories are rejected.\n"
-            "Rename detection uses a 50% threshold and a candidate limit of 1000.\n"
+            "Rename and copy detection use --rename-threshold (default 50) and a\n"
+            "candidate limit of 1000. --no-copies records copies as new files.\n"
         ),
         "churn": "churn [--by files|directories] [--depth N] [--sort churn|commits|contributors|path] [REPOSITORY]\n",
         "blobs": (
@@ -420,6 +462,13 @@ def _command_help(command: str) -> str:
         f"git-archaeologist {extra[command]}\n"
         "Global options work before or after the command. "
         "The default target is HEAD. This tool only reads the local repository.\n"
+        "--limit 0 prints every row. The default is 20. "
+        "dig prints 5 rows per section until you pass --limit.\n"
+        "--path limits ranked commands to one file or directory. "
+        "--since-rev REV excludes commits reachable from REV. "
+        "--until-rev REV keeps commits reachable from REV.\n"
+        "--rename-threshold N sets the rename and copy similarity percentage. "
+        "The default is 50. --no-copies records copies as new files.\n"
     )
 
 
@@ -496,6 +545,29 @@ def _bound(text: str, *, until: bool) -> Any:
         return parse_user_time(text, until=until)
     except ValueError as exc:
         raise ToolError("USAGE", str(exc), 2) from exc
+
+
+def _resolve_revisions(repo: Repository, request: Request) -> None:
+    if request.since_rev:
+        request.since_rev_oid = repo.peel_commit(request.since_rev)
+    if request.until_rev:
+        oid = repo.peel_commit(request.until_rev)
+        if oid not in repo.commits:
+            raise ToolError(
+                "INVALID_REVISION",
+                "--until-rev is not an ancestor of the target.",
+                4,
+                {"revision": request.until_rev},
+            )
+        request.until_rev_oid = oid
+
+
+def _threshold(text: str | None) -> int:
+    if text is None:
+        return 50
+    if not text.isdigit() or not 0 <= int(text) <= 100:
+        raise ToolError("USAGE", "--rename-threshold must be an integer from 0 to 100.", 2)
+    return int(text)
 
 
 def _limit(text: str) -> int:
