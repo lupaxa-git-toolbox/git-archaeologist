@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lupaxa-git-toolbox/git-archaeologist/schema/git-archaeologist-1.0.schema.json",
+  "title": "Git Archaeologist report 1.0",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "tool_version",
+    "command",
+    "status",
+    "repository",
+    "scope",
+    "analysis",
+    "data",
+    "warnings",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "tool_version": { "type": "string" },
+    "command": {
+      "enum": [
+        "dig",
+        "timeline",
+        "contributors",
+        "survivors",
+        "extinct",
+        "files",
+        "history",
+        "churn",
+        "blobs",
+        "evolution"
+      ]
+    },
+    "status": { "enum": ["ok", "partial", "error"] },
+    "repository": { "type": ["object", "null"] },
+    "scope": { "type": ["object", "null"] },
+    "analysis": { "type": ["object", "null"] },
+    "data": { "type": ["object", "null"] },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "context"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "context": { "type": "object" }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "context"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "context": { "type": "object" }
+        }
+      }
+    }
+  }
+}
