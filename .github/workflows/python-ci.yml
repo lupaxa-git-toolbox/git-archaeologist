@@ -45,14 +45,28 @@ permissions:
   contents: read
 
 jobs:
+  python-versions:
+    name: Python Versions
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.get-versions.outputs.latest-versions }}
+    steps:
+      - name: Get Python Versions
+        id: get-versions
+        uses: lupaxa-actions-toolbox/get-language-versions@7dda2912be25435b135d3b1b25eefe0b23801f2a  # v0.1.5
+        with:
+          language: python
+          min-version: "3.11"
+          remove-patch-version: true
+
   python-ci:
     name: Lint & Test
+    needs:
+      - python-versions
     uses: the-lupaxa-project/workflows/.github/workflows/reusable-python-makefile-ci.yml@master
     secrets: inherit
     with:
-      python-versions: '["3.13", "3.14"]'
-      install-target: install-dev
-      ci-target: check
+      python-versions: ${{ needs.python-versions.outputs.versions }}
 
   generate-workflow-summary:
     name: Generate Workflow Summary

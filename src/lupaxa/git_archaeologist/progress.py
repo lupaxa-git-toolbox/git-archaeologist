@@ -14,14 +14,7 @@ _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 class Progress:
     """Keep a long phase visibly alive without writing to stdout."""
 
-    def __init__(
-        self,
-        *,
-        enabled: bool,
-        tty: bool,
-        color: bool = False,
-        stream: TextIO | None = None,
-    ) -> None:
+    def __init__(self, *, enabled: bool, tty: bool, color: bool = False, stream: TextIO | None = None) -> None:
         self.enabled = enabled
         self.tty = tty and enabled
         self.color = color and self.tty
@@ -59,11 +52,7 @@ class Progress:
                 return
             if self._thread is None:
                 self._hide_cursor()
-                self._thread = threading.Thread(
-                    target=self._spin,
-                    name="git-archaeologist-progress",
-                    daemon=True,
-                )
+                self._thread = threading.Thread(target=self._spin, name="git-archaeologist-progress", daemon=True)
                 self._thread.start()
             self._paint_unlocked()
 

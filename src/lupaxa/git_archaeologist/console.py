@@ -40,24 +40,11 @@ def console_lines(report: dict[str, Any], request: Request) -> list[str]:
         lines.append("")
         lines.append(paint("Warnings", Style.bold, Fore.yellow))
         for warning in warnings:
-            lines.append(
-                "  "
-                + paint(str(warning.get("code")), Fore.yellow)
-                + "  "
-                + str(warning.get("message"))
-            )
+            lines.append("  " + paint(str(warning.get("code")), Fore.yellow) + "  " + str(warning.get("message")))
     return lines
 
 
-def render_table(
-    headers: list[str],
-    rows: list[list[str]],
-    *,
-    aligns: list[str] | None = None,
-    width: int = 80,
-    paint: Paint | None = None,
-    colours: list[str] | None = None,
-) -> list[str]:
+def render_table(headers: list[str], rows: list[list[str]], *, aligns: list[str] | None = None, width: int = 80, paint: Paint | None = None, colours: list[str] | None = None) -> list[str]:
     """Draw a box table. ``colours`` styles the whole column when colour is on."""
     painter = paint or Paint(False)
     if not rows:
@@ -89,33 +76,13 @@ def _header(report: dict[str, Any], paint: Paint) -> list[str]:
     ]
     if repository:
         lines.append(_field("Repository", str(repository.get("display_name") or ""), paint))
-        lines.append(
-            _field(
-                "State",
-                _state(str(repository.get("repository_state") or ""), paint),
-                paint,
-                raw=True,
-            )
-        )
+        lines.append(_field("State", _state(str(repository.get("repository_state") or ""), paint), paint, raw=True))
     if scope.get("target_id"):
         target = str(scope["target_id"])
         lines.append(_field("Target", abbreviate(target, {target}), paint, Fore.white))
-        lines.append(
-            _field(
-                "Commits",
-                f"{_commas(scope.get('selected_commits') or 0)} selected, "
-                f"{_commas(scope.get('reachable_commits') or 0)} reachable",
-                paint,
-            )
-        )
+        lines.append(_field("Commits", f"{_commas(scope.get('selected_commits') or 0)} selected, {_commas(scope.get('reachable_commits') or 0)} reachable", paint))
     if scope.get("since") or scope.get("until"):
-        lines.append(
-            _field(
-                "Interval",
-                f"{scope.get('since') or 'open'} .. {scope.get('until') or 'open'}",
-                paint,
-            )
-        )
+        lines.append(_field("Interval", f"{scope.get('since') or 'open'} .. {scope.get('until') or 'open'}", paint))
     if analysis.get("merge_policy_label"):
         lines.append(paint(str(analysis["merge_policy_label"]), Style.dim))
     return lines
@@ -136,9 +103,7 @@ def _state(state: str, paint: Paint) -> str:
     return paint(state, colour) if colour else state
 
 
-def _command(
-    command: str, data: dict[str, Any], paint: Paint, width: int, request: Request
-) -> list[str]:
+def _command(command: str, data: dict[str, Any], paint: Paint, width: int, request: Request) -> list[str]:
     if command == "dig":
         return _dig(data, paint, width)
     if command == "timeline":
@@ -150,12 +115,7 @@ def _command(
     rows = data.get("rows")
     if not isinstance(rows, list):
         return []
-    return _section(
-        command,
-        _count_note(data),
-        _rows_table(command, rows, paint, width),
-        paint,
-    )
+    return _section(command, _count_note(data), _rows_table(command, rows, paint, width), paint)
 
 
 def _dig(data: dict[str, Any], paint: Paint, width: int) -> list[str]:
@@ -175,22 +135,10 @@ def _dig(data: dict[str, Any], paint: Paint, width: int) -> list[str]:
         ),
         paint,
     )
-    for name, title in (
-        ("survivors", "Survivors"),
-        ("most_changed", "Most changed"),
-        ("extinct", "Extinct"),
-        ("blobs", "Historical blobs"),
-    ):
+    for name, title in (("survivors", "Survivors"), ("most_changed", "Most changed"), ("extinct", "Extinct"), ("blobs", "Historical blobs")):
         section = data.get(name) or {}
         if section.get("status") == "skipped":
-            lines.extend(
-                _section(
-                    title,
-                    paint(f"Skipped ({section.get('reason')}).", Style.dim),
-                    [],
-                    paint,
-                )
-            )
+            lines.extend(_section(title, paint(f"Skipped ({section.get('reason')}).", Style.dim), [], paint))
             continue
         rows = section.get("rows") or section.get("sample") or []
         kind = "extinct" if name == "extinct" else "files" if name == "most_changed" else name
@@ -206,18 +154,8 @@ def _discoveries(discoveries: dict[str, Any], paint: Paint, width: int) -> list[
     lines.append(paint("Discoveries", Style.bold, Fore.cyan))
     for key, title, headers, builder in (
         ("gaps", "Gaps of at least 90 days", ["Duration", "From", "To"], _gap_cells),
-        (
-            "extinct_episodes",
-            "Extinct episodes of at least 365 days",
-            ["Duration", "Path", "Removed"],
-            _episode_cells,
-        ),
-        (
-            "historical_blobs",
-            "Historical-only blobs of at least 10 MiB",
-            ["Size", "Presence", "Path", "Object"],
-            _blob_cells,
-        ),
+        ("extinct_episodes", "Extinct episodes of at least 365 days", ["Duration", "Path", "Removed"], _episode_cells),
+        ("historical_blobs", "Historical-only blobs of at least 10 MiB", ["Size", "Presence", "Path", "Object"], _blob_cells),
     ):
         section = discoveries.get(key) or {}
         lines.append("")
@@ -226,9 +164,7 @@ def _discoveries(discoveries: dict[str, Any], paint: Paint, width: int) -> list[
             lines.append(paint(f"Skipped ({section.get('reason')}).", Style.dim))
             continue
         rows = section.get("rows") or []
-        lines.extend(
-            render_table(headers, [builder(row) for row in rows], width=width, paint=paint)
-        )
+        lines.extend(render_table(headers, [builder(row) for row in rows], width=width, paint=paint))
     return lines
 
 
@@ -249,13 +185,7 @@ def _timeline(data: dict[str, Any], paint: Paint, width: int) -> list[str]:
     return _section(
         f"Timeline ({data.get('group')})",
         "",
-        render_table(
-            ["Bucket", "Commits", "Authors", "Added", "Deleted", "Renames", "Churn"],
-            rows,
-            aligns=["left", "right", "right", "right", "right", "right", "right"],
-            width=width,
-            paint=paint,
-        ),
+        render_table(["Bucket", "Commits", "Authors", "Added", "Deleted", "Renames", "Churn"], rows, aligns=["left", "right", "right", "right", "right", "right", "right"], width=width, paint=paint),
         paint,
     )
 
@@ -271,13 +201,7 @@ def _evolution(data: dict[str, Any], paint: Paint, width: int) -> list[str]:
     return _section(
         f"Evolution ({data.get('snapshot_policy')}, {data.get('group')})",
         "",
-        render_table(
-            ["Bucket", "Commit", "Leaves", "Files", "Bytes", "Authors"],
-            rows,
-            aligns=["left", "left", "right", "right", "right", "right"],
-            width=width,
-            paint=paint,
-        ),
+        render_table(["Bucket", "Commit", "Leaves", "Files", "Bytes", "Authors"], rows, aligns=["left", "left", "right", "right", "right", "right"], width=width, paint=paint),
         paint,
     )
 
@@ -286,12 +210,7 @@ def _history(data: dict[str, Any], paint: Paint, width: int, *, details: bool) -
     origin = str(data.get("origin_status") or "")
     colour = _origin_colour(origin)
     origin_text = paint(f"Origin {origin}", colour) if colour else f"Origin {origin}"
-    lines = _section(
-        "History",
-        f"{origin_text}  Events {_commas(data.get('events_total') or 0)}",
-        [],
-        paint,
-    )
+    lines = _section("History", f"{origin_text}  Events {_commas(data.get('events_total') or 0)}", [], paint)
     events = data.get("events") or []
     if not details or not events:
         return lines
@@ -310,16 +229,7 @@ def _history(data: dict[str, Any], paint: Paint, width: int, *, details: bool) -
                 _delta(event),
             ]
         )
-    lines.extend(
-        render_table(
-            ["Commit", "When", "Status", "Path", "+/-"],
-            rows,
-            aligns=["left", "left", "left", "left", "right"],
-            width=width,
-            paint=paint,
-            colours=["", "", "status", "", ""],
-        )
-    )
+    lines.extend(render_table(["Commit", "When", "Status", "Path", "+/-"], rows, aligns=["left", "left", "left", "left", "right"], width=width, paint=paint, colours=["", "", "status", "", ""]))
     return lines
 
 
@@ -410,19 +320,9 @@ def _rows_table(command: str, rows: list[Any], paint: Paint, width: int) -> list
         )
     if command == "blobs":
         return render_table(
-            ["Size", "Presence", "Path", "Object"],
-            [_blob_cells(row) for row in records],
-            aligns=["right", "left", "left", "left"],
-            width=width,
-            paint=paint,
-            colours=["", "presence", "", ""],
+            ["Size", "Presence", "Path", "Object"], [_blob_cells(row) for row in records], aligns=["right", "left", "left", "left"], width=width, paint=paint, colours=["", "presence", "", ""]
         )
-    return render_table(
-        ["Value"],
-        [[str(row)] for row in records],
-        width=width,
-        paint=paint,
-    )
+    return render_table(["Value"], [[str(row)] for row in records], width=width, paint=paint)
 
 
 def _file_cells(row: dict[str, Any]) -> list[str]:
@@ -503,13 +403,7 @@ def _count_note(data: dict[str, Any]) -> str:
     return f"Showing {shown} of {total}{suffix}"
 
 
-def _data_row(
-    cells: list[str],
-    widths: list[int],
-    aligns: list[str],
-    paint: Paint,
-    colours: list[str],
-) -> str:
+def _data_row(cells: list[str], widths: list[int], aligns: list[str], paint: Paint, colours: list[str]) -> str:
     drawn = []
     for index, cell in enumerate(cells):
         colour = _resolve_colour(colours[index] if index < len(colours) else "", cell)
@@ -547,9 +441,7 @@ def _resolve_colour(token: str, cell: str) -> str:
 
 
 def _origin_colour(status: str) -> str:
-    return {"confirmed": Fore.green, "boundary": Fore.yellow, "ambiguous": Fore.yellow}.get(
-        status, ""
-    )
+    return {"confirmed": Fore.green, "boundary": Fore.yellow, "ambiguous": Fore.yellow}.get(status, "")
 
 
 def _status_colour(status: str) -> str:

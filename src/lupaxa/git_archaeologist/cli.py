@@ -19,18 +19,7 @@ from lupaxa.git_archaeologist.reports import build_report
 from lupaxa.git_archaeologist.text import parse_size, parse_user_time
 from lupaxa.git_archaeologist.version import get_version
 
-_COMMANDS = (
-    "dig",
-    "timeline",
-    "contributors",
-    "survivors",
-    "extinct",
-    "files",
-    "history",
-    "churn",
-    "blobs",
-    "evolution",
-)
+_COMMANDS = ("dig", "timeline", "contributors", "survivors", "extinct", "files", "history", "churn", "blobs", "evolution")
 _GLOBAL_VALUES = {
     "--format",
     "--branch",
@@ -160,11 +149,7 @@ def _emit_tool_error(exc: ToolError, fmt: str, command: str | None) -> None:
 
 def _execute(request: Request) -> int:
     runner = GitRunner()
-    progress = Progress(
-        enabled=not request.quiet,
-        tty=sys.stderr.isatty(),
-        color=request.color and sys.stderr.isatty(),
-    )
+    progress = Progress(enabled=not request.quiet, tty=sys.stderr.isatty(), color=request.color and sys.stderr.isatty())
     try:
         progress.update("Checking Git")
         runner.require_version()
@@ -180,11 +165,7 @@ def _execute(request: Request) -> int:
             render(_bare_report(repo, request, kind), request)
             return 0
         elif head_oid is None:
-            raise ToolError(
-                "GIT_FAILED",
-                "HEAD does not resolve to a commit in this repository.",
-                3,
-            )
+            raise ToolError("GIT_FAILED", "HEAD does not resolve to a commit in this repository.", 3)
         else:
             target = head_oid
         progress.update("Reading commits")
@@ -205,11 +186,7 @@ def _execute(request: Request) -> int:
 
 
 def _bare_report(repo: Repository, request: Request, kind: str) -> dict[str, Any]:
-    message = (
-        "The repository has no commits."
-        if kind == "empty"
-        else "HEAD does not point at a commit. Pass --branch or --revision to select one."
-    )
+    message = "The repository has no commits." if kind == "empty" else "HEAD does not point at a commit. Pass --branch or --revision to select one."
     _state, branch, oid = repo.resolve_head()
     branches, tags = repo.local_ref_counts()
     return {
@@ -255,9 +232,7 @@ def _exit_code(exc: SystemExit) -> int:
     return exc.code if isinstance(exc.code, int) else 2
 
 
-def _request(
-    command: str, global_tokens: list[str], command_tokens: list[str], fmt: str
-) -> Request:
+def _request(command: str, global_tokens: list[str], command_tokens: list[str], fmt: str) -> Request:
     global_args = _parse_globals(global_tokens)
     parser = _command_parser(command)
     try:
@@ -310,12 +285,7 @@ def _request(
             min_size = parse_size(parsed.min_size)
         except ValueError as exc:
             raise ToolError("USAGE", str(exc), 2) from exc
-    color = (
-        fmt == "console"
-        and not global_args.no_color
-        and sys.stdout.isatty()
-        and "NO_COLOR" not in os.environ
-    )
+    color = fmt == "console" and not global_args.no_color and sys.stdout.isatty() and "NO_COLOR" not in os.environ
     width = shutil.get_terminal_size(fallback=(80, 24)).columns if sys.stdout.isatty() else 80
     return Request(
         command=command,
@@ -393,11 +363,7 @@ def _command_parser(command: str) -> _Parser:
     elif command == "timeline":
         parser.add_argument("--group", choices=("auto", "day", "month", "year"), default="auto")
     elif command == "contributors":
-        parser.add_argument(
-            "--sort",
-            choices=("commits", "first", "last", "name"),
-            default="commits",
-        )
+        parser.add_argument("--sort", choices=("commits", "first", "last", "name"), default="commits")
         parser.add_argument("--no-mailmap", action="store_true")
     elif command == "survivors":
         parser.add_argument("--sort", choices=("age", "commits", "path"), default="age")
@@ -406,20 +372,12 @@ def _command_parser(command: str) -> _Parser:
         parser.add_argument("--kind", choices=("files", "directories", "all"), default="all")
         parser.add_argument("--sort", choices=("last", "age", "commits", "path"), default="last")
     elif command == "files":
-        parser.add_argument(
-            "--sort",
-            choices=("age", "commits", "contributors", "churn", "size", "path"),
-            default="commits",
-        )
+        parser.add_argument("--sort", choices=("age", "commits", "contributors", "churn", "size", "path"), default="commits")
         parser.add_argument("--no-renames", action="store_true")
     elif command == "churn":
         parser.add_argument("--by", choices=("files", "directories"), default="files")
         parser.add_argument("--depth", type=int, default=1)
-        parser.add_argument(
-            "--sort",
-            choices=("churn", "commits", "contributors", "path"),
-            default="churn",
-        )
+        parser.add_argument("--sort", choices=("churn", "commits", "contributors", "path"), default="churn")
         parser.add_argument("--no-renames", action="store_true")
     elif command == "blobs":
         parser.add_argument("--min-size", dest="min_size")
@@ -553,12 +511,7 @@ def _resolve_revisions(repo: Repository, request: Request) -> None:
     if request.until_rev:
         oid = repo.peel_commit(request.until_rev)
         if oid not in repo.commits:
-            raise ToolError(
-                "INVALID_REVISION",
-                "--until-rev is not an ancestor of the target.",
-                4,
-                {"revision": request.until_rev},
-            )
+            raise ToolError("INVALID_REVISION", "--until-rev is not an ancestor of the target.", 4, {"revision": request.until_rev})
         request.until_rev_oid = oid
 
 
@@ -585,11 +538,7 @@ def _repository(value: str | None) -> Path:
     except OSError as exc:
         raise ToolError("NOT_REPOSITORY", str(exc), 3) from exc
     if not resolved.is_dir():
-        raise ToolError(
-            "NOT_REPOSITORY",
-            f"Repository path is not an existing directory: {resolved}",
-            3,
-        )
+        raise ToolError("NOT_REPOSITORY", f"Repository path is not an existing directory: {resolved}", 3)
     return resolved
 
 

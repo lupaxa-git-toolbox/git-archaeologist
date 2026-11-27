@@ -13,25 +13,10 @@ from typing import Any
 from lupaxa.git_archaeologist.errors import ToolError
 from lupaxa.git_archaeologist.gitio import Change, Commit, Leaf, Repository, WarningNote
 from lupaxa.git_archaeologist.options import Request
-from lupaxa.git_archaeologist.text import (
-    auto_group,
-    bucket_key,
-    bucket_range,
-    elapsed_seconds,
-    exclusive_bucket_end,
-    extension_of,
-    format_duration,
-    from_unix,
-    language_of,
-    path_record,
-    percentage,
-)
+from lupaxa.git_archaeologist.text import auto_group, bucket_key, bucket_range, elapsed_seconds, exclusive_bucket_end, extension_of, format_duration, from_unix, language_of, path_record, percentage
 from lupaxa.git_archaeologist.version import get_version
 
-_MERGE_LABEL = (
-    "Merge commits count toward activity. File events include only changes that differ "
-    "from every parent."
-)
+_MERGE_LABEL = "Merge commits count toward activity. File events include only changes that differ from every parent."
 _DAY = 86400
 _LFS_VERSION = b"version https://git-lfs.github.com/spec/v1\n"
 
@@ -91,10 +76,7 @@ class Analysis:
         until_oid = self.request.until_rev_oid
         if since_oid is None and until_oid is None:
             return None
-        if until_oid is None:
-            allowed = set(self.repo.commits)
-        else:
-            allowed = set(self.repo.ancestor_ids(until_oid))
+        allowed = set(self.repo.commits) if until_oid is None else set(self.repo.ancestor_ids(until_oid))
         if since_oid is not None:
             allowed -= self.repo.ancestor_ids(since_oid)
         return allowed
@@ -191,9 +173,7 @@ class Analysis:
 
         walk(oid, path)
         status = _origin_status(origins)
-        keys = sorted(
-            f"{item.commit}:{base64.b64encode(item.path).decode('ascii')}" for item in origins
-        )
+        keys = sorted(f"{item.commit}:{base64.b64encode(item.path).decode('ascii')}" for item in origins)
         traced = _Trace(status, origins, nodes, renames, keys)
         self._traces[key] = traced
         return traced
@@ -239,19 +219,14 @@ class Analysis:
 def _origin_status(origins: list[_Origin]) -> str:
     if not origins:
         return "ambiguous"
-    if (
-        any(item.status == "ambiguous" for item in origins)
-        or len({item.commit for item in origins}) > 1
-    ):
+    if any(item.status == "ambiguous" for item in origins) or len({item.commit for item in origins}) > 1:
         return "ambiguous"
     return origins[0].status
 
 
 def _identity_key(traced: _Trace) -> str:
     if traced.keys:
-        return (
-            traced.keys[0] if traced.status != "ambiguous" else "ambiguous:" + "|".join(traced.keys)
-        )
+        return traced.keys[0] if traced.status != "ambiguous" else "ambiguous:" + "|".join(traced.keys)
     return "unknown"
 
 
@@ -305,15 +280,7 @@ def build_report(repo: Repository, request: Request, target: str) -> dict[str, A
     return _envelope(repo, request, target, analysis, data, sections, status)
 
 
-def _envelope(
-    repo: Repository,
-    request: Request,
-    target: str,
-    analysis: Analysis,
-    data: dict[str, Any],
-    sections: dict[str, Any],
-    status: str,
-) -> dict[str, Any]:
+def _envelope(repo: Repository, request: Request, target: str, analysis: Analysis, data: dict[str, Any], sections: dict[str, Any], status: str) -> dict[str, Any]:
     reachable = list(repo.commits.values())
     selected = analysis.selected()
     first_r, last_r = analysis.activity_span(reachable)
@@ -360,10 +327,7 @@ def _envelope(
         "since": from_unix(request.since) if request.since is not None else None,
         "since_rev": request.since_rev,
         "target_id": target,
-        "target_versus_window": (
-            "Revision and date filters select activity events. "
-            "The target tree remains the resolved commit."
-        ),
+        "target_versus_window": ("Revision and date filters select activity events. The target tree remains the resolved commit."),
         "until": from_unix(request.until) if request.until is not None else None,
         "until_rev": request.until_rev,
         "window": window,
@@ -437,10 +401,7 @@ def _dig(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
         "accessible_span": {
             "first": _commit_ref(first_r),
             "last": _commit_ref(last_r),
-            "seconds": elapsed_seconds(
-                None if first_r is None else first_r.committer_ts,
-                None if last_r is None else last_r.committer_ts,
-            ),
+            "seconds": elapsed_seconds(None if first_r is None else first_r.committer_ts, None if last_r is None else last_r.committer_ts),
         },
         "canonical_author_count": len(authors),
         "selected_activity": {"first": _commit_ref(first_s), "last": _commit_ref(last_s)},
@@ -449,13 +410,7 @@ def _dig(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     }
     sections: dict[str, Any] = {"repository": {"status": "complete"}}
     if request.quick:
-        analysis.repo.warnings.append(
-            WarningNote(
-                "SKIPPED_QUICK",
-                "Quick mode skipped rename, lifecycle, churn, extinct, and historical blob scans.",
-                {},
-            )
-        )
+        analysis.repo.warnings.append(WarningNote("SKIPPED_QUICK", "Quick mode skipped rename, lifecycle, churn, extinct, and historical blob scans.", {}))
         gaps = _gap_rows(selected)
         data = {
             "blobs": _skipped("quick_mode"),
@@ -481,18 +436,9 @@ def _dig(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     extinct = _extinct(analysis)[0]
     blob_data = _blobs(analysis)[0]
     episodes = _extinct_episodes(analysis)
-    historical = [
-        row
-        for row in blob_data["rows"]
-        if row["presence"] == "historical_only" and row["size"] >= 10 * 1024 * 1024
-    ]
+    historical = [row for row in blob_data["rows"] if row["presence"] == "historical_only" and row["size"] >= 10 * 1024 * 1024]
     data = {
-        "blobs": _complete(
-            analysis.slice_rows(
-                [row for row in blob_data["rows"] if row["size"] >= 10 * 1024 * 1024],
-                5,
-            )
-        ),
+        "blobs": _complete(analysis.slice_rows([row for row in blob_data["rows"] if row["size"] >= 10 * 1024 * 1024], 5)),
         "discoveries": {
             "extinct_episodes": _complete(analysis.slice_rows(episodes, 5)),
             "gaps": _complete(analysis.slice_rows(_gap_rows(selected), 5)),
@@ -506,9 +452,7 @@ def _dig(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
             "sample": analysis.slice_rows(extinct["rows"], 5)["rows"],
             "status": "complete",
         },
-        "most_changed": _complete(
-            analysis.slice_rows(_public_file_rows(changed_rows, use_window=False), 5)
-        ),
+        "most_changed": _complete(analysis.slice_rows(_public_file_rows(changed_rows, use_window=False), 5)),
         "repository_summary": summary,
         "survivors": _complete(analysis.slice_rows(_public_survivor_rows(survivor_rows), 5)),
     }
@@ -518,12 +462,7 @@ def _dig(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def _activity_filtered(request: Request) -> bool:
-    return (
-        request.since is not None
-        or request.until is not None
-        or request.since_rev is not None
-        or request.until_rev is not None
-    )
+    return request.since is not None or request.until is not None or request.since_rev is not None or request.until_rev is not None
 
 
 def _path_in_scope(path: bytes | None, scope: bytes | None) -> bool:
@@ -583,9 +522,7 @@ def _contributors(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     if scope is None:
         counted = selected
     else:
-        touching = {
-            event.commit for event in analysis.repo.changes if _event_in_scope(event, scope)
-        }
+        touching = {event.commit for event in analysis.repo.changes if _event_in_scope(event, scope)}
         counted = [commit for commit in selected if commit.oid in touching]
     selected_ids = {item.oid for item in counted}
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
@@ -623,10 +560,7 @@ def _contributors(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     total_commits = len(counted)
 
     def sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
-        identity = (
-            row["canonical_name"].encode("utf-8", "surrogateescape"),
-            row["canonical_email"].encode("utf-8", "surrogateescape"),
-        )
+        identity = (row["canonical_name"].encode("utf-8", "surrogateescape"), row["canonical_email"].encode("utf-8", "surrogateescape"))
         mode = analysis.request.sort or "commits"
         if mode == "first":
             return (row["first_selected"].committer_ts, row["first_selected"].oid, identity)
@@ -639,13 +573,7 @@ def _contributors(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     rows.sort(key=sort_key)
     public = []
     for row in rows:
-        aliases = sorted(
-            row["aliases"],
-            key=lambda item: (
-                item[0].encode("utf-8", "surrogateescape"),
-                item[1].encode("utf-8", "surrogateescape"),
-            ),
-        )
+        aliases = sorted(row["aliases"], key=lambda item: (item[0].encode("utf-8", "surrogateescape"), item[1].encode("utf-8", "surrogateescape")))
         public.append(
             {
                 "active_months": len(row["active_months"]),
@@ -680,9 +608,7 @@ def _timeline(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     if scope is None:
         visible = selected
     else:
-        touching = {
-            event.commit for event in analysis.repo.changes if _event_in_scope(event, scope)
-        }
+        touching = {event.commit for event in analysis.repo.changes if _event_in_scope(event, scope)}
         visible = [commit for commit in selected if commit.oid in touching]
     visible_ids = {item.oid for item in visible}
     first, last = analysis.activity_span(visible)
@@ -796,27 +722,13 @@ def _survivor_rows(analysis: Analysis) -> list[dict[str, Any]]:
     elif mode == "path":
         rows.sort(key=lambda row: row["path_bytes"])
     else:
-        rows.sort(
-            key=lambda row: (row["earliest_ts"] is None, row["earliest_ts"] or 0, row["path_bytes"])
-        )
+        rows.sort(key=lambda row: (row["earliest_ts"] is None, row["earliest_ts"] or 0, row["path_bytes"]))
     return rows
 
 
-def _presence_row(
-    analysis: Analysis,
-    path: bytes,
-    leaf: Leaf | None,
-    traced: _Trace,
-    latest_ts: int | None,
-) -> dict[str, Any]:
+def _presence_row(analysis: Analysis, path: bytes, leaf: Leaf | None, traced: _Trace, latest_ts: int | None) -> dict[str, Any]:
     if traced.status == "ambiguous":
-        analysis.repo.warnings.append(
-            WarningNote(
-                "AMBIGUOUS_ORIGIN",
-                "At least one path has more than one possible origin. No single birth was chosen.",
-                {},
-            )
-        )
+        analysis.repo.warnings.append(WarningNote("AMBIGUOUS_ORIGIN", "At least one path has more than one possible origin. No single birth was chosen.", {}))
     nodes = traced.nodes
     observed = [analysis.repo.commits[oid] for oid, _path in nodes]
     earliest = min(observed, key=lambda item: (item.committer_ts, item.oid)) if observed else None
@@ -826,12 +738,8 @@ def _presence_row(
     events = analysis.touches(traced)
     selected_ids = {item.oid for item in analysis.selected()}
     window_events = [event for event in events if event.commit in selected_ids]
-    lifetime_authors = {
-        analysis.canonical_author(analysis.repo.commits[event.commit]) for event in events
-    }
-    window_authors = {
-        analysis.canonical_author(analysis.repo.commits[event.commit]) for event in window_events
-    }
+    lifetime_authors = {analysis.canonical_author(analysis.repo.commits[event.commit]) for event in events}
+    window_authors = {analysis.canonical_author(analysis.repo.commits[event.commit]) for event in window_events}
     additions = sum(event.additions or 0 for event in events if not event.binary)
     deletions = sum(event.deletions or 0 for event in events if not event.binary)
     window_additions = sum(event.additions or 0 for event in window_events if not event.binary)
@@ -872,9 +780,7 @@ def _presence_row(
         "lifetime_additions": additions,
         "lifetime_deletions": deletions,
         "window_touches": len(window_events),
-        "lifetime_seconds": elapsed_seconds(
-            None if earliest is None else earliest.committer_ts, latest_ts
-        ),
+        "lifetime_seconds": elapsed_seconds(None if earliest is None else earliest.committer_ts, latest_ts),
     }
 
 
@@ -922,21 +828,15 @@ def _file_rows(analysis: Analysis) -> list[dict[str, Any]]:
     return rows
 
 
-def _public_file_rows(
-    rows: list[dict[str, Any]], *, use_window: bool = False
-) -> list[dict[str, Any]]:
+def _public_file_rows(rows: list[dict[str, Any]], *, use_window: bool = False) -> list[dict[str, Any]]:
     public = []
     for row in rows:
         public.append(
             {
-                "binary_events": row["window_binary_events"]
-                if use_window
-                else row["binary_events"],
+                "binary_events": row["window_binary_events"] if use_window else row["binary_events"],
                 "churn": row["window_churn"] if use_window else row["lifetime_churn"],
                 "confirmed_birth": row["confirmed_birth"],
-                "contributors": row["window_contributors"]
-                if use_window
-                else row["lifetime_contributors"],
+                "contributors": row["window_contributors"] if use_window else row["lifetime_contributors"],
                 "current": row["current"],
                 "earliest_observed": row["earliest_observed"],
                 "identity_keys": row["identity_keys"],
@@ -1002,15 +902,9 @@ def _extinct(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     historical = _all_paths(analysis)
     target_paths = set(analysis.target_map())
     scope = analysis.scope_path()
-    absent = [
-        path for path in historical if path not in target_paths and _path_in_scope(path, scope)
-    ]
+    absent = [path for path in historical if path not in target_paths and _path_in_scope(path, scope)]
     file_rows = [_extinct_file(analysis, path, historical[path]) for path in absent]
-    directories = [
-        row
-        for row in _extinct_directories(analysis, historical, target_paths)
-        if _path_in_scope(row["path_bytes"], scope)
-    ]
+    directories = [row for row in _extinct_directories(analysis, historical, target_paths) if _path_in_scope(row["path_bytes"], scope)]
     kind = analysis.request.kind or "all"
     rows: list[dict[str, Any]] = []
     if kind in {"files", "all"}:
@@ -1051,14 +945,7 @@ def _extinct_file(analysis: Analysis, path: bytes, commit_ids: list[str]) -> dic
         parents = [parent for parent in commit.parents if parent in present]
         if not parents:
             continue
-        event = next(
-            (
-                item
-                for item in analysis.event_index().get(commit.oid, [])
-                if item.old_path == path and item.new_path != path
-            ),
-            None,
-        )
+        event = next((item for item in analysis.event_index().get(commit.oid, []) if item.old_path == path and item.new_path != path), None)
         if event is None:
             reason = "unresolved"
             destination = None
@@ -1103,15 +990,11 @@ def _extinct_file(analysis: Analysis, path: bytes, commit_ids: list[str]) -> dic
             oid_map.append(leaf.oid)
     size_map = analysis.repo.blob_sizes(oid_map)
     sizes = list(size_map.values())
-    events = [
-        event for event in analysis.repo.changes if event.old_path == path or event.new_path == path
-    ]
+    events = [event for event in analysis.repo.changes if event.old_path == path or event.new_path == path]
     selected_ids = {item.oid for item in analysis.selected()}
     authors = {analysis.canonical_author(analysis.repo.commits[event.commit]) for event in events}
     window_events = [event for event in events if event.commit in selected_ids]
-    seconds = (
-        elapsed_seconds(earliest.committer_ts, latest.committer_ts) if len(removals) == 1 else None
-    )
+    seconds = elapsed_seconds(earliest.committer_ts, latest.committer_ts) if len(removals) == 1 else None
     destinations = []
     for item in removals:
         moved_to = item["destination"]
@@ -1133,11 +1016,7 @@ def _extinct_file(analysis: Analysis, path: bytes, commit_ids: list[str]) -> dic
         "removals": [
             {
                 "commit": item["commit"],
-                "destination": (
-                    path_record(item["destination"])
-                    if isinstance(item["destination"], bytes)
-                    else None
-                ),
+                "destination": (path_record(item["destination"]) if isinstance(item["destination"], bytes) else None),
                 "reason": item["reason"],
                 "removed_at": item["at"],
             }
@@ -1147,11 +1026,7 @@ def _extinct_file(analysis: Analysis, path: bytes, commit_ids: list[str]) -> dic
     }
 
 
-def _extinct_directories(
-    analysis: Analysis,
-    historical: dict[bytes, list[str]],
-    target_paths: set[bytes],
-) -> list[dict[str, Any]]:
+def _extinct_directories(analysis: Analysis, historical: dict[bytes, list[str]], target_paths: set[bytes]) -> list[dict[str, Any]]:
     prefixes: set[bytes] = set()
     for path in historical:
         parts = path.split(b"/")
@@ -1169,11 +1044,7 @@ def _extinct_directories(
         present_counts: list[tuple[int, str]] = []
         present_commits: list[Commit] = []
         for commit in analysis.repo.commits.values():
-            count = sum(
-                1
-                for leaf_path in analysis.path_map(commit.oid)
-                if leaf_path.startswith(prefix + b"/")
-            )
+            count = sum(1 for leaf_path in analysis.path_map(commit.oid) if leaf_path.startswith(prefix + b"/"))
             if count:
                 present_counts.append((count, commit.oid))
                 present_commits.append(commit)
@@ -1182,14 +1053,8 @@ def _extinct_directories(
         earliest = min(present_commits, key=lambda item: (item.committer_ts, item.oid))
         latest = max(present_commits, key=lambda item: (item.committer_ts, item.oid))
         peak = max(count for count, _oid in present_counts)
-        events = [
-            event
-            for event in analysis.repo.changes
-            if _path_in_scope(event.old_path, prefix) or _path_in_scope(event.new_path, prefix)
-        ]
-        authors = {
-            analysis.canonical_author(analysis.repo.commits[event.commit]) for event in events
-        }
+        events = [event for event in analysis.repo.changes if _path_in_scope(event.old_path, prefix) or _path_in_scope(event.new_path, prefix)]
+        authors = {analysis.canonical_author(analysis.repo.commits[event.commit]) for event in events}
         selected_ids = {item.oid for item in analysis.selected()}
         removals = _directory_removals(analysis, prefix)
         absence = "observed_deletion" if removals else "unresolved"
@@ -1210,9 +1075,7 @@ def _extinct_directories(
                 "path_bytes": prefix,
                 "peak_descendants": peak,
                 "removals": removals,
-                "window_touches": len(
-                    {event.commit for event in events if event.commit in selected_ids}
-                ),
+                "window_touches": len({event.commit for event in events if event.commit in selected_ids}),
             }
         )
     return rows
@@ -1229,11 +1092,7 @@ def _directory_removals(analysis: Analysis, prefix: bytes) -> list[dict[str, Any
     for commit in analysis.repo.commits.values():
         if _prefix_present(analysis, commit.oid, prefix):
             continue
-        parents = [
-            parent
-            for parent in commit.parents
-            if parent in analysis.repo.commits and _prefix_present(analysis, parent, prefix)
-        ]
+        parents = [parent for parent in commit.parents if parent in analysis.repo.commits and _prefix_present(analysis, parent, prefix)]
         if not parents:
             continue
         found.append(
@@ -1310,18 +1169,8 @@ def _history(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     target_paths = set(analysis.target_map())
     if path not in historical and path not in target_paths:
         if any(item.startswith(path + b"/") for item in set(historical) | target_paths):
-            raise ToolError(
-                "USAGE",
-                "That path is a directory. Use files, churn, or extinct for directory summaries.",
-                2,
-                {"path": path.decode("utf-8", "surrogateescape")},
-            )
-        raise ToolError(
-            "PATH_NOT_FOUND",
-            "That path was not found in the selected history.",
-            4,
-            {"path": path.decode("utf-8", "surrogateescape")},
-        )
+            raise ToolError("USAGE", "That path is a directory. Use files, churn, or extinct for directory summaries.", 2, {"path": path.decode("utf-8", "surrogateescape")})
+        raise ToolError("PATH_NOT_FOUND", "That path was not found in the selected history.", 4, {"path": path.decode("utf-8", "surrogateescape")})
     introductions = _incarnations(analysis, path)
     chosen = _select_incarnation(analysis, path, introductions)
     traced = chosen
@@ -1329,27 +1178,13 @@ def _history(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     selected_ids = {item.oid for item in analysis.selected()}
     window = [event for event in events if event["commit"] in selected_ids]
     largest = _largest_text(events)
-    authors = sorted(
-        {
-            (
-                analysis.repo.commits[event["commit"]].author_name,
-                analysis.repo.commits[event["commit"]].author_email,
-            )
-            for event in events
-        }
-    )
-    canonical = sorted(
-        {analysis.canonical_author(analysis.repo.commits[event["commit"]]) for event in events}
-    )
+    authors = sorted({(analysis.repo.commits[event["commit"]].author_name, analysis.repo.commits[event["commit"]].author_email) for event in events})
+    canonical = sorted({analysis.canonical_author(analysis.repo.commits[event["commit"]]) for event in events})
     limit = analysis.limit_of(20)
     shown = events if limit == 0 else events[:limit]
     data = {
         "canonical_contributors": [{"email": email, "name": name} for name, email in canonical],
-        "confirmed_birth": _commit_ref(
-            analysis.repo.commits[traced.origins[0].commit]
-            if traced.status == "confirmed" and traced.origins
-            else None
-        ),
+        "confirmed_birth": _commit_ref(analysis.repo.commits[traced.origins[0].commit] if traced.status == "confirmed" and traced.origins else None),
         "empty_selection": _empty_selection(analysis.request, analysis.selected()),
         "events": shown,
         "events_returned": len(shown),
@@ -1391,12 +1226,7 @@ def _select_incarnation(analysis: Analysis, path: bytes, traces: list[_Trace]) -
     if analysis.request.incarnation:
         oid = analysis.repo.peel_commit(analysis.request.incarnation)
         if oid not in analysis.repo.commits or path not in analysis.path_map(oid):
-            raise ToolError(
-                "AMBIGUOUS_INCARNATION",
-                "The incarnation commit is not reachable or does not contain that path.",
-                4,
-                {"commit": analysis.request.incarnation},
-            )
+            raise ToolError("AMBIGUOUS_INCARNATION", "The incarnation commit is not reachable or does not contain that path.", 4, {"commit": analysis.request.incarnation})
         return analysis.trace(oid, path)
     if path in analysis.target_map():
         return analysis.trace(analysis.target, path)
@@ -1405,13 +1235,7 @@ def _select_incarnation(analysis: Analysis, path: bytes, traces: list[_Trace]) -
     if len(traces) == 0:
         raise ToolError("PATH_NOT_FOUND", "That path was not found in the selected history.", 4)
     listed = sorted({origin.commit for trace in traces for origin in trace.origins})
-    raise ToolError(
-        "AMBIGUOUS_INCARNATION",
-        "Several incarnations contain that path. Pass --incarnation with one observed commit: "
-        + ", ".join(listed),
-        4,
-        {"commits": listed},
-    )
+    raise ToolError("AMBIGUOUS_INCARNATION", "Several incarnations contain that path. Pass --incarnation with one observed commit: " + ", ".join(listed), 4, {"commits": listed})
 
 
 def _history_events(analysis: Analysis, traced: _Trace) -> list[dict[str, Any]]:
@@ -1445,11 +1269,7 @@ def _history_events(analysis: Analysis, traced: _Trace) -> list[dict[str, Any]]:
 
 
 def _largest_text(events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    measured = [
-        event
-        for event in events
-        if not event["binary"] and event["additions"] is not None and event["deletions"] is not None
-    ]
+    measured = [event for event in events if not event["binary"] and event["additions"] is not None and event["deletions"] is not None]
     if not measured:
         return None
 
@@ -1492,9 +1312,7 @@ def _churn(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
     if analysis.request.by == "directories":
         return _churn_directories(analysis)
     grouped: dict[str, dict[str, Any]] = {}
-    survivor_keys = {
-        _identity_key(analysis.trace(analysis.target, path)): path for path in analysis.target_map()
-    }
+    survivor_keys = {_identity_key(analysis.trace(analysis.target, path)): path for path in analysis.target_map()}
     selected_ids = {item.oid for item in analysis.selected()}
     windowed = _activity_filtered(analysis.request)
     scope = analysis.scope_path()
@@ -1504,14 +1322,7 @@ def _churn(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
         if not _event_in_scope(event, scope):
             continue
         if event.status == "D" and event.old_path is not None:
-            parent = next(
-                (
-                    item
-                    for item in analysis.repo.commits[event.commit].parents
-                    if item in analysis.repo.commits
-                ),
-                None,
-            )
+            parent = next((item for item in analysis.repo.commits[event.commit].parents if item in analysis.repo.commits), None)
             if parent is None or event.old_path not in analysis.path_map(parent):
                 continue
             traced = analysis.trace(parent, event.old_path)
@@ -1560,9 +1371,7 @@ def _churn(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
                 "identity_key": bucket["identity_key"],
                 "path": path_record(bucket["path_bytes"]),
                 "path_bytes": bucket["path_bytes"],
-                "text_churn_complete": complete
-                if bucket["text_events"] or bucket["binary_events"]
-                else True,
+                "text_churn_complete": complete if bucket["text_events"] or bucket["binary_events"] else True,
             }
         )
     mode = analysis.request.sort or "churn"
@@ -1642,9 +1451,7 @@ def _churn_directories(analysis: Analysis) -> tuple[dict[str, Any], dict[str, An
                 "deletions": bucket["deletions"],
                 "path": path_record(path),
                 "path_bytes": path,
-                "text_churn_complete": not (
-                    bucket["text_events"] == 0 and bucket["binary_events"] > 0
-                ),
+                "text_churn_complete": not (bucket["text_events"] == 0 and bucket["binary_events"] > 0),
             }
         )
     if scope is not None:
@@ -1665,9 +1472,7 @@ def _directory_group(path: bytes, depth: int) -> bytes:
     return b"/".join(parts[:-1][:depth])
 
 
-def _dir_lines(
-    bucket: dict[str, Any], event: Change, additions: int | None, deletions: int | None
-) -> None:
+def _dir_lines(bucket: dict[str, Any], event: Change, additions: int | None, deletions: int | None) -> None:
     if event.binary:
         bucket["binary_events"] += 1
         return
@@ -1719,9 +1524,7 @@ def _blobs(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
                 "present_in_target": present,
                 "representative_path": path_record(ordered_paths[0]),
                 "size": size,
-                "target_paths": [
-                    path_record(path) for path in sorted(target_blob_paths.get(oid, ()))
-                ],
+                "target_paths": [path_record(path) for path in sorted(target_blob_paths.get(oid, ()))],
             }
         )
     mode = analysis.request.sort or "size"
@@ -1769,8 +1572,7 @@ def _evolution(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
         if len(keys) > analysis.request.max_snapshots:
             raise ToolError(
                 "USAGE",
-                "That grouping produces more snapshots than --max-snapshots. "
-                "Choose a coarser grouping or raise the bound.",
+                "That grouping produces more snapshots than --max-snapshots. Choose a coarser grouping or raise the bound.",
                 2,
                 {"snapshots": len(keys), "max_snapshots": analysis.request.max_snapshots},
             )
@@ -1779,11 +1581,7 @@ def _evolution(analysis: Analysis) -> tuple[dict[str, Any], dict[str, Any]]:
             candidates = [
                 (analysis.repo.commits[oid].committer_ts, index, oid)
                 for index, oid in enumerate(chain)
-                if analysis.repo.commits[oid].committer_ts < end
-                and (
-                    analysis.request.until is None
-                    or analysis.repo.commits[oid].committer_ts < analysis.request.until
-                )
+                if analysis.repo.commits[oid].committer_ts < end and (analysis.request.until is None or analysis.repo.commits[oid].committer_ts < analysis.request.until)
             ]
             if not candidates:
                 samples.append({"bucket": key, "commit": None, "row_kind": "no_snapshot"})

@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Read-only local Git history analysis for activity, lineage, churn, and tree snapshots."
 readme = "README.md"
 license = { file = "LICENCE" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "The Lupaxa Project" }]
 keywords = ["git", "history", "cli", "archaeology"]
 dependencies = ["colored>=2.2"]
@@ -19,11 +19,11 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Topic :: Software Development :: Version Control :: Git",
 ]
 
@@ -57,8 +57,8 @@ include = ["src/**", "README.md", "LICENCE", "schema/**"]
 packages = ["src/lupaxa"]
 
 [tool.ruff]
-line-length = 100
-target-version = "py310"
+line-length = 200
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
@@ -71,7 +71,7 @@ ignore = ["E501"]
 quote-style = "double"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 files = ["src"]
 mypy_path = "src"
 explicit_package_bases = true

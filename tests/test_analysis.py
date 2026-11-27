@@ -81,10 +81,7 @@ def test_committed_mailmap_beats_the_worktree(tmp_path: Path, capsys) -> None:
     repo = init_repo(tmp_path / "mail", branch="topic")
     mail = "Canonical <canonical@example.com> Ada Lovelace <ada@example.com>\n"
     commit_file(repo, ".mailmap", mail, "map", "2024-01-01T00:00:00Z")
-    (repo / ".mailmap").write_text(
-        "Ada Lovelace <ada@example.com> Worktree <worktree@example.com>\n",
-        encoding="utf-8",
-    )
+    (repo / ".mailmap").write_text("Ada Lovelace <ada@example.com> Worktree <worktree@example.com>\n", encoding="utf-8")
     report = _json(repo, "contributors", capsys=capsys)
     assert report["data"]["rows"][0]["canonical_email"] == "canonical@example.com"
     assert report["analysis"]["mailmap"]["status"] == "applied"
@@ -178,9 +175,7 @@ def test_until_rev_must_be_an_ancestor(tmp_path: Path, capsys) -> None:
     git(repo, "checkout", "-q", "-b", "side")
     commit_file(repo, "side.txt", "side\n", "side", "2024-02-01T00:00:00Z")
     git(repo, "checkout", "-q", "topic")
-    code = main(
-        ["churn", "--until-rev", "side", "--format", "json", "--quiet", "--no-color", str(repo)]
-    )
+    code = main(["churn", "--until-rev", "side", "--format", "json", "--quiet", "--no-color", str(repo)])
     captured = capsys.readouterr()
     assert code == 4
     assert "ancestor" in captured.out
@@ -215,9 +210,7 @@ def test_copy_keeps_its_source(tmp_path: Path, capsys) -> None:
 def test_rename_threshold_can_keep_a_rewritten_file(tmp_path: Path, capsys) -> None:
     repo = init_repo(tmp_path / "threshold", branch="topic")
     original = "".join(f"line {index}\n" for index in range(10))
-    rewritten = "".join(
-        f"line {index}\n" if index < 4 else f"changed {index}\n" for index in range(10)
-    )
+    rewritten = "".join(f"line {index}\n" if index < 4 else f"changed {index}\n" for index in range(10))
     commit_file(repo, "old.txt", original, "add", "2024-01-01T00:00:00Z")
     (repo / "old.txt").write_text(rewritten, encoding="utf-8")
     git(repo, "add", "--", "old.txt", date="2024-02-01T00:00:00Z")
@@ -252,18 +245,7 @@ def _inventory(repo: Path) -> str:
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     parts = []
-    for args in (
-        ["status", "--porcelain=v1", "-z"],
-        ["rev-parse", "HEAD"],
-        ["config", "--local", "--list"],
-        ["rev-list", "--objects", "--all"],
-    ):
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=repo,
-            env=env,
-            check=True,
-            capture_output=True,
-        )
+    for args in (["status", "--porcelain=v1", "-z"], ["rev-parse", "HEAD"], ["config", "--local", "--list"], ["rev-list", "--objects", "--all"]):
+        completed = subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True)
         parts.append(completed.stdout)
     return b"\n".join(parts).decode("utf-8", "replace")

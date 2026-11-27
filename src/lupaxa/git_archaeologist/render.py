@@ -75,10 +75,7 @@ def _markdown(report: dict[str, Any]) -> list[str]:
     if scope:
         lines.append(f"- Selector: `{scope.get('selector_kind')}` `{scope.get('selector_value')}`")
         lines.append(f"- Target: `{scope.get('target_id')}`")
-        lines.append(
-            f"- Commits: {scope.get('selected_commits')} selected, "
-            f"{scope.get('reachable_commits')} reachable"
-        )
+        lines.append(f"- Commits: {scope.get('selected_commits')} selected, {scope.get('reachable_commits')} reachable")
         if scope.get("since") or scope.get("until"):
             lines.append(f"- Interval: `{scope.get('since')}` to `{scope.get('until')}`")
     if analysis.get("merge_policy_label"):
@@ -101,11 +98,7 @@ def _markdown(report: dict[str, Any]) -> list[str]:
         for warning in warnings:
             lines.append(f"- `{warning['code']}`: {warning['message']}")
         lines.append("")
-    skipped = [
-        (name, section.get("reason"))
-        for name, section in (analysis.get("sections") or {}).items()
-        if section.get("status") == "skipped"
-    ]
+    skipped = [(name, section.get("reason")) for name, section in (analysis.get("sections") or {}).items() if section.get("status") == "skipped"]
     if skipped:
         lines.append("## Skipped Sections")
         lines.append("")
@@ -119,34 +112,19 @@ def _markdown_sections(command: str, data: dict[str, Any]) -> list[str]:
     if command == "dig":
         return _markdown_dig(data)
     if command == "timeline":
-        return _markdown_table(
-            "Timeline",
-            ["Bucket", "Commits", "Authors", "Churn"],
-            [
-                [bucket["key"], bucket["commits"], bucket["authors"], bucket["churn"]]
-                for bucket in data.get("buckets") or []
-            ],
-        )
+        return _markdown_table("Timeline", ["Bucket", "Commits", "Authors", "Churn"], [[bucket["key"], bucket["commits"], bucket["authors"], bucket["churn"]] for bucket in data.get("buckets") or []])
     if command == "evolution":
         snapshot_rows: list[list[Any]] = []
         for row in data.get("samples") or []:
             if row.get("row_kind") == "no_snapshot":
                 snapshot_rows.append([row["bucket"], "no snapshot", "", ""])
             else:
-                snapshot_rows.append(
-                    [row["bucket"], row["commit"], row["tracked_leaves"], row["logical_bytes"]]
-                )
+                snapshot_rows.append([row["bucket"], row["commit"], row["tracked_leaves"], row["logical_bytes"]])
         return _markdown_table("Snapshots", ["Bucket", "Commit", "Leaves", "Bytes"], snapshot_rows)
     if command == "history":
         lines = ["## History", "", f"Origin status: `{data.get('origin_status')}`", ""]
         events = data.get("events") or []
-        lines.extend(
-            _markdown_table(
-                "Events",
-                ["Commit", "Status", "When"],
-                [[event["commit"], event["status"], event["committer_at"]] for event in events],
-            )
-        )
+        lines.extend(_markdown_table("Events", ["Commit", "Status", "When"], [[event["commit"], event["status"], event["committer_at"]] for event in events]))
         return lines
     rows = [row for row in data.get("rows") or [] if isinstance(row, dict)]
     return _markdown_table("Results", ["Summary"], [[_cell(_row_summary(row))] for row in rows])

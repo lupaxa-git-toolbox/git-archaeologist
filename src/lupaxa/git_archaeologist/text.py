@@ -5,12 +5,10 @@ from __future__ import annotations
 import base64
 import calendar
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 _DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
-_RFC3339 = re.compile(
-    r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
-)
+_RFC3339 = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 _SIZE = re.compile(r"^(\d+)([A-Za-z]+)?$")
 _SUFFIX = {
     "b": 1,
@@ -132,7 +130,7 @@ def parse_user_time(text: str, *, until: bool) -> datetime:
     if date_match:
         year, month, day = (int(part) for part in date_match.groups())
         _validate_date(year, month, day)
-        instant = datetime(year, month, day, tzinfo=timezone.utc)
+        instant = datetime(year, month, day, tzinfo=UTC)
         if until:
             instant += timedelta(days=1)
         return instant
@@ -149,16 +147,14 @@ def parse_user_time(text: str, *, until: bool) -> datetime:
         micro = int(float(fraction) * 1_000_000)
     offset = stamp.group(8)
     if offset == "Z":
-        tz = timezone.utc
+        tz = UTC
     else:
         sign = 1 if offset[0] == "+" else -1
         oh, om = int(offset[1:3]), int(offset[4:6])
         if oh > 23 or om > 59:
             raise ValueError(f"invalid timestamp: {text}")
         tz = timezone(sign * timedelta(hours=oh, minutes=om))
-    return datetime(year, month, day, hour, minute, second, micro, tzinfo=tz).astimezone(
-        timezone.utc
-    )
+    return datetime(year, month, day, hour, minute, second, micro, tzinfo=tz).astimezone(UTC)
 
 
 def _validate_date(year: int, month: int, day: int) -> None:
@@ -168,13 +164,13 @@ def _validate_date(year: int, month: int, day: int) -> None:
 
 def to_rfc3339(instant: datetime) -> str:
     """Format an aware datetime as UTC RFC 3339."""
-    utc = instant.astimezone(timezone.utc).replace(microsecond=0)
+    utc = instant.astimezone(UTC).replace(microsecond=0)
     return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def from_unix(timestamp: int) -> str:
     """Format a Unix timestamp as UTC RFC 3339."""
-    return to_rfc3339(datetime.fromtimestamp(timestamp, timezone.utc))
+    return to_rfc3339(datetime.fromtimestamp(timestamp, UTC))
 
 
 def percentage(part: int, whole: int) -> float:
@@ -219,7 +215,7 @@ def auto_group(span_seconds: int | None) -> str:
 
 def bucket_key(timestamp: int, group: str) -> str:
     """Return the UTC bucket key for a committer timestamp."""
-    moment = datetime.fromtimestamp(timestamp, timezone.utc)
+    moment = datetime.fromtimestamp(timestamp, UTC)
     if group == "day":
         return moment.strftime("%Y-%m-%d")
     if group == "month":
@@ -232,16 +228,16 @@ def bucket_key(timestamp: int, group: str) -> str:
 def bucket_range(start: int, end: int, group: str) -> list[str]:
     """Inclusive UTC bucket keys from the first selected instant through the last."""
     if group == "day":
-        cursor = datetime.fromtimestamp(start, timezone.utc).date()
-        last = datetime.fromtimestamp(end, timezone.utc).date()
+        cursor = datetime.fromtimestamp(start, UTC).date()
+        last = datetime.fromtimestamp(end, UTC).date()
         keys: list[str] = []
         while cursor <= last:
             keys.append(cursor.isoformat())
             cursor += timedelta(days=1)
         return keys
     if group == "month":
-        moment = datetime.fromtimestamp(start, timezone.utc)
-        last = datetime.fromtimestamp(end, timezone.utc)
+        moment = datetime.fromtimestamp(start, UTC)
+        last = datetime.fromtimestamp(end, UTC)
         year, month = moment.year, moment.month
         keys = []
         while (year, month) <= (last.year, last.month):
@@ -251,8 +247,8 @@ def bucket_range(start: int, end: int, group: str) -> list[str]:
                 month = 1
                 year += 1
         return keys
-    moment = datetime.fromtimestamp(start, timezone.utc)
-    last = datetime.fromtimestamp(end, timezone.utc)
+    moment = datetime.fromtimestamp(start, UTC)
+    last = datetime.fromtimestamp(end, UTC)
     return [f"{year:04d}" for year in range(moment.year, last.year + 1)]
 
 
@@ -260,16 +256,13 @@ def exclusive_bucket_end(key: str, group: str) -> int:
     """Unix instant at the exclusive end of a bucket key."""
     if group == "day":
         year, month, day = (int(part) for part in key.split("-"))
-        moment = datetime(year, month, day, tzinfo=timezone.utc) + timedelta(days=1)
+        moment = datetime(year, month, day, tzinfo=UTC) + timedelta(days=1)
     elif group == "month":
         year, month = (int(part) for part in key.split("-"))
-        if month == 12:
-            moment = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-        else:
-            moment = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        moment = datetime(year + 1, 1, 1, tzinfo=UTC) if month == 12 else datetime(year, month + 1, 1, tzinfo=UTC)
     else:
         year = int(key)
-        moment = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        moment = datetime(year + 1, 1, 1, tzinfo=UTC)
     return int(moment.timestamp())
 
 

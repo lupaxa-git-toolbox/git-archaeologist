@@ -103,9 +103,7 @@ class WarningNote:
 
 
 def _sanitized_env() -> dict[str, str]:
-    env = {
-        key: value for key, value in os.environ.items() if key in _KEEP_ENV or key.startswith("LC_")
-    }
+    env = {key: value for key, value in os.environ.items() if key in _KEEP_ENV or key.startswith("LC_")}
     env.update(
         {
             "GIT_OPTIONAL_LOCKS": "0",
@@ -132,11 +130,7 @@ class GitRunner:
     def __init__(self) -> None:
         git = shutil.which("git")
         if git is None:
-            raise ToolError(
-                "GIT_NOT_FOUND",
-                "Git was not found on PATH. Install Git 2.30 or newer and retry.",
-                3,
-            )
+            raise ToolError("GIT_NOT_FOUND", "Git was not found on PATH. Install Git 2.30 or newer and retry.", 3)
         self.git = git
         self.temp = tempfile.TemporaryDirectory(prefix="git-archaeologist-")
         self.calls: list[tuple[str, ...]] = []
@@ -184,33 +178,14 @@ class GitRunner:
         """Remove temporary hook and mailmap files."""
         self.temp.cleanup()
 
-    def run(
-        self,
-        args: Sequence[str],
-        *,
-        cwd: Path | None = None,
-        check: bool = True,
-        stdin: bytes | None = None,
-    ) -> GitOutput:
+    def run(self, args: Sequence[str], *, cwd: Path | None = None, check: bool = True, stdin: bytes | None = None) -> GitOutput:
         """Run Git. Arguments are passed as an array and never through a shell."""
         command = [self.git, *self._prefix, *args]
         self.calls.append(tuple(args))
         try:
-            completed = subprocess.run(
-                command,
-                cwd=cwd,
-                env=self._env,
-                input=stdin,
-                capture_output=True,
-                shell=False,
-                check=False,
-            )
+            completed = subprocess.run(command, cwd=cwd, env=self._env, input=stdin, capture_output=True, shell=False, check=False)
         except FileNotFoundError as exc:
-            raise ToolError(
-                "GIT_NOT_FOUND",
-                "Git was not found on PATH. Install Git 2.30 or newer and retry.",
-                3,
-            ) from exc
+            raise ToolError("GIT_NOT_FOUND", "Git was not found on PATH. Install Git 2.30 or newer and retry.", 3) from exc
         stderr = completed.stderr[-_STDERR_LIMIT:]
         output = GitOutput(tuple(args), completed.returncode, completed.stdout, stderr)
         if check and completed.returncode != 0:
@@ -232,11 +207,7 @@ class GitRunner:
             raise ToolError("GIT_UNSUPPORTED", f"Could not read the Git version from {text!r}.", 3)
         major, minor = int(pieces[0]), int(pieces[1])
         if (major, minor) < (2, 30):
-            raise ToolError(
-                "GIT_UNSUPPORTED",
-                f"Git {number} is older than the required 2.30 baseline.",
-                3,
-            )
+            raise ToolError("GIT_UNSUPPORTED", f"Git {number} is older than the required 2.30 baseline.", 3)
         return text
 
 
@@ -245,33 +216,14 @@ def _failure(args: Sequence[str], output: GitOutput) -> ToolError:
     lowered = text.lower()
     if "dubious ownership" in lowered or "safe.directory" in lowered:
         return ToolError(
-            "UNSAFE_REPOSITORY",
-            "Git refused this repository because of ownership protection. "
-            "Resolve it outside Git Archaeologist. This tool does not add safe.directory.",
-            3,
-            {"stderr": text[:500]},
+            "UNSAFE_REPOSITORY", "Git refused this repository because of ownership protection. Resolve it outside Git Archaeologist. This tool does not add safe.directory.", 3, {"stderr": text[:500]}
         )
     if "not a git repository" in lowered:
-        return ToolError(
-            "NOT_REPOSITORY",
-            "Git could not find a repository at that path.",
-            3,
-            {"stderr": text[:500]},
-        )
+        return ToolError("NOT_REPOSITORY", "Git could not find a repository at that path.", 3, {"stderr": text[:500]})
     if "missing" in lowered or "bad object" in lowered or "unable to read" in lowered:
-        return ToolError(
-            "MISSING_OBJECT",
-            "A required Git object is missing. Git Archaeologist does not fetch objects.",
-            3,
-            {"operation": " ".join(args[:6]), "stderr": text[:500]},
-        )
+        return ToolError("MISSING_OBJECT", "A required Git object is missing. Git Archaeologist does not fetch objects.", 3, {"operation": " ".join(args[:6]), "stderr": text[:500]})
     detail = text or f"Git exited {output.returncode}"
-    return ToolError(
-        "GIT_FAILED",
-        f"Git command failed: {detail}",
-        3,
-        {"operation": " ".join(args[:8])},
-    )
+    return ToolError("GIT_FAILED", f"Git command failed: {detail}", 3, {"operation": " ".join(args[:8])})
 
 
 def _parse_ident(raw: bytes) -> tuple[str, str, int]:
@@ -330,12 +282,7 @@ def _parse_batch(blob: bytes) -> list[tuple[str, bytes]]:
         index = newline + 1
         if header.endswith(b" missing"):
             oid = header.split()[0].decode("ascii", "replace")
-            raise ToolError(
-                "MISSING_OBJECT",
-                f"Object {oid} is missing. Git Archaeologist does not fetch objects.",
-                3,
-                {"object": oid},
-            )
+            raise ToolError("MISSING_OBJECT", f"Object {oid} is missing. Git Archaeologist does not fetch objects.", 3, {"object": oid})
         parts = header.split()
         if len(parts) < 3:
             raise ToolError("GIT_FAILED", "Git object stream returned a short header.", 3)
@@ -465,11 +412,7 @@ def _apply_numstat(blob: bytes, records: list[dict[str, Any]]) -> None:
             paths = [path]
             expected = [record["old_path"] if record["status"] == "D" else record["new_path"]]
         if paths != expected:
-            raise ToolError(
-                "GIT_FAILED",
-                "Git numstat paths did not match the raw diff record order.",
-                3,
-            )
+            raise ToolError("GIT_FAILED", "Git numstat paths did not match the raw diff record order.", 3)
         binary = added == b"-" or deleted == b"-"
         record["binary"] = binary
         record["additions"] = None if binary else int(added)
@@ -509,9 +452,7 @@ class Repository:
     def _git(self, args: Sequence[str], **kwargs: Any) -> GitOutput:
         return self.runner.run(args, cwd=self.start, **kwargs)
 
-    def note_progress(
-        self, label: str, current: int | None = None, total: int | None = None
-    ) -> None:
+    def note_progress(self, label: str, current: int | None = None, total: int | None = None) -> None:
         """Advance the stderr spinner when one is attached."""
         progress = self.progress
         if progress is not None:
@@ -524,19 +465,12 @@ class Repository:
             message = inside.stderr.decode("utf-8", "replace")
             if "dubious ownership" in message.lower():
                 raise _failure(["rev-parse"], inside)
-            raise ToolError(
-                "NOT_REPOSITORY",
-                "Git could not find a repository at that path.",
-                3,
-            )
+            raise ToolError("NOT_REPOSITORY", "Git could not find a repository at that path.", 3)
         self.bare = bare.stdout.strip() == b"true"
         self.git_dir = Path(self._git(["rev-parse", "--absolute-git-dir"]).stdout.decode().strip())
         common = self._git(["rev-parse", "--git-common-dir"]).stdout.decode().strip()
         common_path = Path(common)
-        if not common_path.is_absolute():
-            common_path = (self.git_dir.parent / common_path).resolve()
-        else:
-            common_path = common_path.resolve()
+        common_path = (self.git_dir.parent / common_path).resolve() if not common_path.is_absolute() else common_path.resolve()
         self.common_dir = common_path
         if self.bare:
             self.root: Path | None = None
@@ -550,36 +484,17 @@ class Repository:
         shallow = self._git(["rev-parse", "--is-shallow-repository"]).stdout.strip() == b"true"
         self.shallow = shallow
         if shallow:
-            self.warnings.append(
-                WarningNote(
-                    "SHALLOW_HISTORY",
-                    "This repository is shallow. History before the shallow boundary "
-                    "was not observed.",
-                    {},
-                )
-            )
+            self.warnings.append(WarningNote("SHALLOW_HISTORY", "This repository is shallow. History before the shallow boundary was not observed.", {}))
         grafts = self.common_dir / "info" / "grafts"
         if grafts.is_file() and grafts.stat().st_size > 0:
-            raise ToolError(
-                "GIT_FAILED",
-                "Legacy graft metadata is present, so raw history cannot be guaranteed. "
-                "Remove or replace it outside Git Archaeologist.",
-                3,
-                {"path": str(grafts)},
-            )
+            raise ToolError("GIT_FAILED", "Legacy graft metadata is present, so raw history cannot be guaranteed. Remove or replace it outside Git Archaeologist.", 3, {"path": str(grafts)})
         shallow_file = self.common_dir / "shallow"
         if shallow_file.is_file():
-            self.shallow_boundaries = {
-                line.strip()
-                for line in shallow_file.read_text(encoding="ascii", errors="replace").splitlines()
-                if line.strip()
-            }
+            self.shallow_boundaries = {line.strip() for line in shallow_file.read_text(encoding="ascii", errors="replace").splitlines() if line.strip()}
         self._neutralize_aliases()
 
     def _neutralize_aliases(self) -> None:
-        listed = self._git(
-            ["config", "--local", "--null", "--get-regexp", r"^alias\."], check=False
-        )
+        listed = self._git(["config", "--local", "--null", "--get-regexp", r"^alias\."], check=False)
         if listed.returncode != 0 or not listed.stdout:
             return
         extra: list[str] = []
@@ -626,30 +541,12 @@ class Repository:
     def peel_commit(self, revision: str) -> str:
         """Resolve one commit-ish to a full commit ID."""
         if revision.startswith("-"):
-            raise ToolError(
-                "INVALID_REVISION",
-                "Revision arguments must not begin with '-'. Pass '--' only as an option boundary.",
-                4,
-                {"revision": revision},
-            )
+            raise ToolError("INVALID_REVISION", "Revision arguments must not begin with '-'. Pass '--' only as an option boundary.", 4, {"revision": revision})
         if ".." in revision or " " in revision:
-            raise ToolError(
-                "INVALID_REVISION",
-                "Ranges and multiple revisions are not supported. Pass one commit, tag, or branch.",
-                4,
-                {"revision": revision},
-            )
-        verified = self._git(
-            ["rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}"],
-            check=False,
-        )
+            raise ToolError("INVALID_REVISION", "Ranges and multiple revisions are not supported. Pass one commit, tag, or branch.", 4, {"revision": revision})
+        verified = self._git(["rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}"], check=False)
         if verified.returncode != 0:
-            raise ToolError(
-                "INVALID_REVISION",
-                f"Could not resolve {revision!r} to a commit.",
-                4,
-                {"revision": revision},
-            )
+            raise ToolError("INVALID_REVISION", f"Could not resolve {revision!r} to a commit.", 4, {"revision": revision})
         return verified.stdout.decode().strip()
 
     def resolve_branch(self, name: str) -> str:
@@ -659,17 +556,9 @@ class Repository:
         if name.startswith("-"):
             raise ToolError("INVALID_REVISION", f"Invalid branch name {name!r}.", 4)
         ref = f"refs/heads/{name}"
-        verified = self._git(
-            ["rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"],
-            check=False,
-        )
+        verified = self._git(["rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"], check=False)
         if verified.returncode != 0:
-            raise ToolError(
-                "INVALID_REVISION",
-                f"Local branch {name!r} does not resolve to a commit.",
-                4,
-                {"branch": name},
-            )
+            raise ToolError("INVALID_REVISION", f"Local branch {name!r} does not resolve to a commit.", 4, {"branch": name})
         return verified.stdout.decode().strip()
 
     def has_other_commits(self) -> bool:
@@ -706,12 +595,7 @@ class Repository:
                 previous = self.commits.get(parent)
                 if previous and commit.committer_ts < previous.committer_ts:
                     self.warnings.append(
-                        WarningNote(
-                            "NON_MONOTONIC_TIME",
-                            "Committer timestamps are not monotonic. Ages that would be "
-                            "negative are omitted instead of invented.",
-                            {"commit": oid, "parent": parent},
-                        )
+                        WarningNote("NON_MONOTONIC_TIME", "Committer timestamps are not monotonic. Ages that would be negative are omitted instead of invented.", {"commit": oid, "parent": parent})
                     )
                     return
 
@@ -731,11 +615,7 @@ class Repository:
                 stack.extend(self.commits[current].parents)
         else:
             output = self._git(["rev-list", oid])
-            found = {
-                line.decode()
-                for line in output.stdout.splitlines()
-                if line.decode() in self.commits
-            }
+            found = {line.decode() for line in output.stdout.splitlines() if line.decode() in self.commits}
         self._ancestor_cache[oid] = found
         return found
 
@@ -771,9 +651,7 @@ class Repository:
                 continue
             if oid in self.shallow_boundaries:
                 continue
-            parent_tree = (
-                self.empty_tree if not commit.parents else self.commits[commit.parents[0]].tree
-            )
+            parent_tree = self.empty_tree if not commit.parents else self.commits[commit.parents[0]].tree
             base = ["diff-tree", "-r", "-z", *rename_args, parent_tree, commit.tree]
             raw = self._git(base + ["--raw"])
             num = self._git(base + ["--numstat"])
@@ -805,10 +683,7 @@ class Repository:
     def _merge_only_changes(self, commit: Commit) -> None:
         """Record paths whose result blob matches none of the parent blobs."""
         result = {leaf.path: leaf for leaf in self.tree_leaves(commit.tree)}
-        parent_maps = [
-            {leaf.path: leaf for leaf in self.tree_leaves(self.commits[parent].tree)}
-            for parent in commit.parents
-        ]
+        parent_maps = [{leaf.path: leaf for leaf in self.tree_leaves(self.commits[parent].tree)} for parent in commit.parents]
         paths = set(result)
         for parent_map in parent_maps:
             paths.update(parent_map)
@@ -820,13 +695,8 @@ class Repository:
             parent_oids = [None if leaf is None else leaf.oid for leaf in parent_leaves]
             if result_oid in parent_oids:
                 continue
-            additions, deletions, binary, source_oid = self._closest_numstat(
-                parent_oids, result_oid
-            )
-            source = next(
-                (leaf for leaf in parent_leaves if leaf is not None and leaf.oid == source_oid),
-                next((leaf for leaf in parent_leaves if leaf is not None), None),
-            )
+            additions, deletions, binary, source_oid = self._closest_numstat(parent_oids, result_oid)
+            source = next((leaf for leaf in parent_leaves if leaf is not None and leaf.oid == source_oid), next((leaf for leaf in parent_leaves if leaf is not None), None))
             if result_leaf is None:
                 status = "D"
                 old_path: bytes | None = path
@@ -868,9 +738,7 @@ class Repository:
                 )
             )
 
-    def _closest_numstat(
-        self, parent_oids: list[str | None], result_oid: str | None
-    ) -> tuple[int | None, int | None, bool, str | None]:
+    def _closest_numstat(self, parent_oids: list[str | None], result_oid: str | None) -> tuple[int | None, int | None, bool, str | None]:
         best: tuple[int, int | None, int | None, bool, str | None] | None = None
         for parent_oid in parent_oids:
             additions, deletions, binary = self._pair_numstat(parent_oid, result_oid)
@@ -880,9 +748,7 @@ class Repository:
         assert best is not None
         return best[1], best[2], best[3], best[4]
 
-    def _pair_numstat(
-        self, old: str | None, new: str | None
-    ) -> tuple[int | None, int | None, bool]:
+    def _pair_numstat(self, old: str | None, new: str | None) -> tuple[int | None, int | None, bool]:
         if old is not None and new is not None:
             completed = self._git(["diff", "--numstat", old, new])
             text = completed.stdout.decode()
@@ -912,9 +778,7 @@ class Repository:
                 self.warnings.append(
                     WarningNote(
                         "RENAME_LIMIT",
-                        "Git skipped exhaustive rename detection because the candidate "
-                        "limit was exhausted. Rename completeness is false for affected "
-                        "comparisons.",
+                        "Git skipped exhaustive rename detection because the candidate limit was exhausted. Rename completeness is false for affected comparisons.",
                         {"limit": 1000, "threshold": self.rename_threshold},
                     )
                 )
@@ -933,11 +797,7 @@ class Repository:
                 self._tree_bodies[oid] = body
                 for mode, _name, child in _parse_tree(body, self.digest_length):
                     normalized = _normalize_mode(mode)
-                    if (
-                        normalized == "040000"
-                        and child not in seen
-                        and child not in self._tree_bodies
-                    ):
+                    if normalized == "040000" and child not in seen and child not in self._tree_bodies:
                         seen.add(child)
                         pending.append(child)
         self._materialize_tree(tree, b"")
@@ -960,14 +820,7 @@ class Repository:
             if normalized == "040000":
                 leaves.extend(self._materialize_tree(oid, path))
             else:
-                leaves.append(
-                    Leaf(
-                        mode=normalized,
-                        kind=mode_kind(normalized),
-                        oid=oid,
-                        path=path,
-                    )
-                )
+                leaves.append(Leaf(mode=normalized, kind=mode_kind(normalized), oid=oid, path=path))
         if prefix == b"":
             self._trees[tree] = tuple(leaves)
         return tuple(leaves)
@@ -980,10 +833,7 @@ class Repository:
             return sizes
         self.note_progress("Reading object sizes")
         payload = b"".join(oid.encode("ascii") + b"\n" for oid in unique)
-        output = self._git(
-            ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
-            stdin=payload,
-        )
+        output = self._git(["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"], stdin=payload)
         for line in output.stdout.splitlines():
             parts = line.split()
             if len(parts) != 3:
@@ -1033,13 +883,7 @@ class Repository:
         self.mailmap_source = None
         self._mailmap = {}
         if not any(item.code == "MAILMAP_FALLBACK" for item in self.warnings):
-            self.warnings.append(
-                WarningNote(
-                    "MAILMAP_FALLBACK",
-                    message + " Identities are reported raw.",
-                    {},
-                )
-            )
+            self.warnings.append(WarningNote("MAILMAP_FALLBACK", message + " Identities are reported raw.", {}))
 
     def canonicalize(self, name: str, email: str) -> tuple[str, str]:
         """Map one raw identity through the committed mailmap, or return it unchanged."""
@@ -1083,10 +927,4 @@ class Repository:
         """Fail if the resolved commit disappeared while the report was built."""
         verified = self._git(["cat-file", "-e", f"{oid}^{{commit}}"], check=False)
         if verified.returncode != 0:
-            raise ToolError(
-                "MISSING_OBJECT",
-                "The selected commit disappeared during analysis. "
-                "The repository was not locked or modified.",
-                3,
-                {"object": oid},
-            )
+            raise ToolError("MISSING_OBJECT", "The selected commit disappeared during analysis. The repository was not locked or modified.", 3, {"object": oid})

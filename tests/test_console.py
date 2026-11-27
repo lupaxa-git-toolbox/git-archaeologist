@@ -39,9 +39,7 @@ def _report() -> dict:
 
 
 def _request(*, color: bool) -> Request:
-    return Request(
-        command="contributors", fmt="console", repository=Path("."), color=color, width=80
-    )
+    return Request(command="contributors", fmt="console", repository=Path("."), color=color, width=80)
 
 
 def test_plain_console_is_a_table_without_ansi(capsys) -> None:
@@ -68,11 +66,6 @@ def test_colour_uses_ansi_and_json_does_not(capsys) -> None:
 def test_long_paths_are_truncated_visibly() -> None:
     from lupaxa.git_archaeologist.console import render_table
 
-    lines = render_table(
-        ["Path", "Touches"],
-        [["src/" + ("very-long-name/" * 8) + "parser.py", "3"]],
-        aligns=["left", "right"],
-        width=40,
-    )
+    lines = render_table(["Path", "Touches"], [["src/" + ("very-long-name/" * 8) + "parser.py", "3"]], aligns=["left", "right"], width=40)
     body = next(line for line in lines if "parser.py" in line or "..." in line)
     assert "..." in body
